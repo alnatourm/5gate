@@ -1,0 +1,6 @@
+{
+  "name": "OGroup AI Factory",
+  "description": "Enterprise AI Software Factory and Multi-Gate Build Platform",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
