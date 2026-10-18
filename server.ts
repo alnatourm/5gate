@@ -1,9 +1,20 @@
-import express from 'express';
-import fs from 'fs';
-import path from 'path';
+import express, { Request, Response, NextFunction } from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
+import { FactoryStorage, UserRecord } from './src/server/storage.ts';
+import {
+  executeRequirementsAgent,
+  ProviderHttpClient,
+} from './src/server/requirementsAgent.ts';
+import {
+  RequirementsDocument,
+  parseMarkdownToRequirements,
+  validateRequirementsDocument,
+} from './src/shared/requirementsSchema.ts';
 
 dotenv.config();
 
@@ -24,7 +35,7 @@ export type ProviderType =
   | 'cloud'
   | 'custom';
 
-interface ProviderConfig {
+export interface ProviderConfig {
   id: string;
   name: string;
   providerType: ProviderType;
@@ -40,7 +51,7 @@ interface ProviderConfig {
   usedQuotaJod: number;
 }
 
-interface AgentConfig {
+export interface AgentConfig {
   gate: number;
   gateCode: string;
   title: string;
@@ -193,66 +204,6 @@ const DEFAULT_PROVIDERS: ProviderConfig[] = [
     monthlyQuotaJod: 1000,
     usedQuotaJod: 210,
   },
-  {
-    id: 'prov-v0',
-    name: 'Vercel v0 UI & Code Engine',
-    providerType: 'v0',
-    model: 'v0-1.0-md',
-    status: 'active',
-    enabled: true,
-    apiKey: '',
-    useSystemEnv: true,
-    endpoint: 'https://api.v0.dev/v1/chat/completions',
-    latency: '140ms',
-    assignedGates: ['GATE 02', 'GATE 03'],
-    monthlyQuotaJod: 800,
-    usedQuotaJod: 150,
-  },
-  {
-    id: 'prov-perplexity',
-    name: 'Perplexity Sonar Research AI',
-    providerType: 'perplexity',
-    model: 'sonar-pro',
-    status: 'active',
-    enabled: true,
-    apiKey: '',
-    useSystemEnv: true,
-    endpoint: 'https://api.perplexity.ai/chat/completions',
-    latency: '175ms',
-    assignedGates: ['GATE 01'],
-    monthlyQuotaJod: 500,
-    usedQuotaJod: 80,
-  },
-  {
-    id: 'prov-together',
-    name: 'Together AI / Fireworks Open-Source Cloud',
-    providerType: 'together',
-    model: 'Qwen/Qwen2.5-Coder-32B-Instruct',
-    status: 'active',
-    enabled: true,
-    apiKey: '',
-    useSystemEnv: true,
-    endpoint: 'https://api.together.xyz/v1/chat/completions',
-    latency: '95ms',
-    assignedGates: ['GATE 03'],
-    monthlyQuotaJod: 600,
-    usedQuotaJod: 120,
-  },
-  {
-    id: 'prov-cohere',
-    name: 'Cohere Command R+ Enterprise',
-    providerType: 'cohere',
-    model: 'command-r-plus-08-2024',
-    status: 'active',
-    enabled: true,
-    apiKey: '',
-    useSystemEnv: true,
-    endpoint: 'https://api.cohere.com/v2/chat',
-    latency: '155ms',
-    assignedGates: ['GATE 01', 'GATE 05'],
-    monthlyQuotaJod: 500,
-    usedQuotaJod: 70,
-  },
 ];
 
 const DEFAULT_AGENTS: AgentConfig[] = [
@@ -262,9 +213,9 @@ const DEFAULT_AGENTS: AgentConfig[] = [
     title: 'وكيل المتطلبات وتحليل الأعمال (Requirements Agent)',
     roleEn: 'Lead Product Manager & PRD Architect',
     desc: 'تحليل أفكار وتطلعات العميل وصياغة وثيقة المتطلبات التشغيلية (PRD) وقصص المستخدمين وهيكلة البيانات.',
-    providerId: 'prov-groq',
-    providerName: 'Groq Cloud LPU Engine',
-    model: 'llama-3.3-70b-versatile',
+    providerId: 'prov-gemini',
+    providerName: 'Google Gemini Enterprise',
+    model: 'gemini-3.8-flash',
     apiKey: '',
     useProviderKey: true,
     temperature: 0.6,
@@ -419,7 +370,10 @@ function normalizeAgents(list: any[], providers: ProviderConfig[]): AgentConfig[
   return DEFAULT_AGENTS.map((def) => {
     const saved = savedMap.get(def.gate);
     if (!saved) return def;
-    const linkedProv = providers.find((p) => p.id === saved.providerId) || providers.find((p) => p.id === def.providerId) || providers[0];
+    const linkedProv =
+      providers.find((p) => p.id === saved.providerId) ||
+      providers.find((p) => p.id === def.providerId) ||
+      providers[0];
     const pType = linkedProv ? inferProviderType(linkedProv) : 'gemini';
     const resolvedModel = isModelCompatibleWithProvider(saved.model, pType)
       ? saved.model
@@ -466,293 +420,533 @@ function savePersistedConfig(providers: ProviderConfig[], agents: AgentConfig[])
   }
 }
 
-async function startServer() {
+export interface CreateAppOptions {
+  dbPath?: string;
+  encryptionSecret?: string;
+  fetchImpl?: ProviderHttpClient;
+  managedGeminiApiKey?: string;
+  isolateConfig?: boolean;
+}
+
+export function createApp(options: CreateAppOptions = {}) {
   const app = express();
   app.use(express.json({ limit: '5mb' }));
 
-  const systemEnvKey = process.env.GEMINI_API_KEY || '';
+  const storage = new FactoryStorage(options.dbPath, options.encryptionSecret);
+  const systemEnvKey =
+    options.managedGeminiApiKey !== undefined
+      ? options.managedGeminiApiKey
+      : process.env.GEMINI_API_KEY || '';
 
-  const initialConfig = loadPersistedConfig();
+  const initialConfig = options.isolateConfig
+    ? { providers: DEFAULT_PROVIDERS, agents: DEFAULT_AGENTS }
+    : loadPersistedConfig();
   let providersConfig: ProviderConfig[] = initialConfig.providers;
   let agentsConfig: AgentConfig[] = initialConfig.agents;
 
-  const resolveExecutionConfig = (
-    gateNum: number,
-    byokKey?: string,
-    explicitProviderId?: string,
-    agentOverride?: Partial<AgentConfig>,
-    providerOverride?: Partial<ProviderConfig>
-  ) => {
-    const baseAgent = agentsConfig.find((a) => a.gate === gateNum) || agentsConfig[0];
-    const agent: AgentConfig = agentOverride ? { ...baseAgent, ...agentOverride } : baseAgent;
+  // Authentication middleware
+  const requireAuth = (req: Request & { user?: UserRecord }, res: Response, next: NextFunction) => {
+    const authHeader = req.headers.authorization || '';
+    const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+    const headerToken = typeof req.headers['x-session-token'] === 'string' ? req.headers['x-session-token'].trim() : '';
+    const token = bearerToken || headerToken;
 
-    const baseProvider = explicitProviderId
-      ? providersConfig.find((p) => p.id === explicitProviderId) || providersConfig[0]
-      : providersConfig.find((p) => p.id === agent.providerId) || providersConfig[0];
-
-    const provider: ProviderConfig = providerOverride
-      ? { ...baseProvider, ...providerOverride, providerType: inferProviderType({ ...baseProvider, ...providerOverride }) }
-      : { ...baseProvider, providerType: inferProviderType(baseProvider) };
-
-    let effectiveKey = systemEnvKey;
-    let keySource = 'System Vault (Active)';
-
-    const cleanAgentKey = (agent.apiKey || '').trim();
-    const cleanProvKey = (provider.apiKey || '').trim();
-    const cleanByokKey = (byokKey || '').trim();
-
-    if (cleanByokKey) {
-      effectiveKey = cleanByokKey;
-      keySource = 'Customer BYOK Key';
-    } else if (!explicitProviderId && !agent.useProviderKey && cleanAgentKey) {
-      effectiveKey = cleanAgentKey;
-      keySource = `Dedicated Agent Key (${agent.gateCode})`;
-    } else if (cleanProvKey) {
-      effectiveKey = cleanProvKey;
-      keySource = `Provider Key (${provider.name})`;
-    } else if (cleanAgentKey) {
-      effectiveKey = cleanAgentKey;
-      keySource = `Agent Key (${agent.gateCode})`;
+    if (!token) {
+      return res.status(401).json({ error: 'غير مصرح. يرجى تسجيل الدخول أولاً (Authentication Required).' });
     }
 
-    const rawModel = explicitProviderId ? provider.model : agent.model || provider.model || 'gemini-3.8-flash';
-    const requestedModel = isModelCompatibleWithProvider(rawModel, provider.providerType)
-      ? rawModel
-      : provider.model || rawModel;
+    const user = storage.getUserByToken(token);
+    if (!user) {
+      return res.status(401).json({ error: 'جلسة الدخول غير صالحة أو منتهية الصلاحية.' });
+    }
 
-    return {
-      agent,
-      provider,
-      effectiveKey,
-      requestedModel,
-      keySource,
-    };
+    req.user = user;
+    next();
   };
 
-  // Multi-provider execution engine supporting all AI providers & custom endpoints
-  const executeMultiProviderPrompt = async (params: {
-    provider: ProviderConfig;
-    agent: AgentConfig;
-    effectiveKey: string;
-    requestedModel: string;
-    promptText: string;
-    systemInstruction: string;
-  }): Promise<{ reply: string; modelUsed: string; providerUsed: string }> => {
-    const { provider, agent, effectiveKey, requestedModel, promptText, systemInstruction } = params;
-    const key = (effectiveKey || '').trim().replace(/^["']|["']$/g, '');
-    const pType = inferProviderType(provider);
+  // =========================================================================
+  // AUTHENTICATION & ENTITLEMENTS ENDPOINTS
+  // =========================================================================
 
-    const isGroqKey = key.startsWith('gsk_');
-    const isAnthropicKey = key.startsWith('sk-ant-');
-    const isOpenRouterKey = key.startsWith('sk-or-');
-    const isGeminiKey = key.startsWith('AIza');
-    const isOpenAICompatibleType = [
-      'openai',
-      'deepseek',
-      'mistral',
-      'xai',
-      'openrouter',
-      'v0',
-      'perplexity',
-      'together',
-      'custom',
-    ].includes(pType);
-
-    // 1. Try Groq API if key is a Groq key or provider is Groq with a custom key
-    if (isGroqKey || (pType === 'groq' && key && !isGeminiKey && !isAnthropicKey && !isOpenRouterKey)) {
-      try {
-        const groqModels = [
-          'llama-3.3-70b-versatile',
-          'llama-3.1-8b-instant',
-          'deepseek-r1-distill-llama-70b',
-          'mixtral-8x7b-32768',
-          'gemma2-9b-it',
-        ];
-        const groqModel = groqModels.includes(requestedModel) ? requestedModel : 'llama-3.3-70b-versatile';
-        const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${key}`,
-          },
-          body: JSON.stringify({
-            model: groqModel,
-            messages: [
-              { role: 'system', content: systemInstruction },
-              { role: 'user', content: promptText },
-            ],
-            temperature: agent.temperature ?? 0.6,
-            max_tokens: 4096,
-          }),
-        });
-        if (resp.ok) {
-          const data: any = await resp.json();
-          const text = data?.choices?.[0]?.message?.content;
-          if (text) {
-            return { reply: text, modelUsed: groqModel, providerUsed: provider.name };
-          }
-        }
-      } catch (err) {
-        console.warn('Groq call fallback:', err);
+  app.post('/api/auth/session', (req, res) => {
+    try {
+      const { email, name, defaultCredits, defaultSubscription } = req.body || {};
+      if (!email || typeof email !== 'string' || !email.trim()) {
+        return res.status(400).json({ error: 'البريد الإلكتروني مطلوب.' });
       }
-    }
+      const user = storage.upsertUserByEmail({
+        email: email.trim(),
+        name: typeof name === 'string' ? name : undefined,
+        defaultCredits: typeof defaultCredits === 'number' ? defaultCredits : 4,
+        defaultSubscription: typeof defaultSubscription === 'boolean' ? defaultSubscription : false,
+      });
+      const token = storage.createSession(user.id);
+      const connections = storage.getUserAIConnections(user.id);
+      const projects = storage.getProjectsByOwner(user.id);
 
-    // 2. Try OpenRouter if key starts with sk-or-
-    if (isOpenRouterKey) {
-      try {
-        const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${key}`,
-          },
-          body: JSON.stringify({
-            model: requestedModel.includes('/') ? requestedModel : 'openrouter/auto',
-            messages: [
-              { role: 'system', content: systemInstruction },
-              { role: 'user', content: promptText },
-            ],
-            temperature: agent.temperature ?? 0.6,
-          }),
-        });
-        if (resp.ok) {
-          const data: any = await resp.json();
-          const text = data?.choices?.[0]?.message?.content;
-          if (text) {
-            return { reply: text, modelUsed: requestedModel, providerUsed: provider.name };
-          }
-        }
-      } catch (err) {
-        console.warn('OpenRouter call fallback:', err);
+      return res.json({
+        token,
+        user,
+        connections,
+        projects,
+      });
+    } catch (err: any) {
+      return res.status(400).json({ error: err.message || 'فشل تسجيل الدخول.' });
+    }
+  });
+
+  app.get('/api/auth/me', requireAuth, (req: Request & { user?: UserRecord }, res) => {
+    const user = req.user!;
+    const connections = storage.getUserAIConnections(user.id);
+    const projects = storage.getProjectsByOwner(user.id);
+    return res.json({ user, connections, projects });
+  });
+
+  app.post('/api/entitlements', requireAuth, (req: Request & { user?: UserRecord }, res) => {
+    try {
+      const { addProjectCredits, projectCredits, subscriptionActive } = req.body || {};
+      const updatedUser = storage.updateUserEntitlements(req.user!.id, {
+        addProjectCredits: typeof addProjectCredits === 'number' ? addProjectCredits : undefined,
+        projectCredits: typeof projectCredits === 'number' ? projectCredits : undefined,
+        subscriptionActive: typeof subscriptionActive === 'boolean' ? subscriptionActive : undefined,
+      });
+      return res.json({ user: updatedUser });
+    } catch (err: any) {
+      return res.status(400).json({ error: err.message || 'فشل تحديث الباقة.' });
+    }
+  });
+
+  // =========================================================================
+  // CUSTOMER ENCRYPTED BYOK AI CONNECTIONS ENDPOINTS
+  // =========================================================================
+
+  app.get('/api/ai-connections', requireAuth, (req: Request & { user?: UserRecord }, res) => {
+    const connections = storage.getUserAIConnections(req.user!.id);
+    return res.json({ connections });
+  });
+
+  app.post('/api/ai-connections', requireAuth, (req: Request & { user?: UserRecord }, res) => {
+    try {
+      const { provider, model, apiKey, endpoint, active } = req.body || {};
+      if (!provider || !model) {
+        return res.status(400).json({ error: 'يجب تحديد المزود (provider) والنموذج (model).' });
       }
+      const saved = storage.saveAIConnection({
+        userId: req.user!.id,
+        provider: String(provider),
+        model: String(model),
+        apiKey: typeof apiKey === 'string' ? apiKey : '',
+        endpoint: typeof endpoint === 'string' ? endpoint : '',
+        active: typeof active === 'boolean' ? active : true,
+      });
+      return res.json({
+        connection: saved,
+        connections: storage.getUserAIConnections(req.user!.id),
+      });
+    } catch (err: any) {
+      return res.status(400).json({ error: err.message || 'فشل حفظ إعدادات مزود الذكاء الاصطناعي.' });
     }
+  });
 
-    // 3. Try OpenAI or any OpenAI-Compatible API (DeepSeek, Mistral, xAI Grok, OpenRouter, Together, Perplexity, v0, Custom)
-    if ((isOpenAICompatibleType || key.startsWith('sk-')) && key && !isGeminiKey && !isGroqKey && !isAnthropicKey && !isOpenRouterKey) {
-      try {
-        const endpoint =
-          provider.endpoint &&
-          provider.endpoint.startsWith('http') &&
-          !provider.endpoint.includes('generativelanguage.googleapis.com') &&
-          !provider.endpoint.includes('stitch.withgoogle.com') &&
-          !provider.endpoint.includes('anthropic.com') &&
-          !provider.endpoint.includes('groq.com')
-            ? provider.endpoint
-            : 'https://api.openai.com/v1/chat/completions';
-        const modelToCall = isModelCompatibleWithProvider(requestedModel, 'openai') ? requestedModel : 'gpt-4o-mini';
-        const resp = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${key}`,
-          },
-          body: JSON.stringify({
-            model: pType === 'openai' || endpoint.includes('openai.com') ? modelToCall : requestedModel,
-            messages: [
-              { role: 'system', content: systemInstruction },
-              { role: 'user', content: promptText },
-            ],
-            temperature: agent.temperature ?? 0.6,
-          }),
-        });
-        if (resp.ok) {
-          const data: any = await resp.json();
-          const text = data?.choices?.[0]?.message?.content;
-          if (text) {
-            return { reply: text, modelUsed: requestedModel, providerUsed: provider.name };
-          }
-        }
-      } catch (err) {
-        console.warn('OpenAI-compatible call fallback:', err);
-      }
+  // =========================================================================
+  // REQUIRED GATE 1 & PROJECT ENDPOINTS (SECTION 9)
+  // =========================================================================
+
+  // 1. POST /api/projects
+  app.post('/api/projects', requireAuth, (req: Request & { user?: UserRecord }, res) => {
+    try {
+      const { name, description, mode, selectedConnectionId } = req.body || {};
+      const project = storage.createProject({
+        ownerId: req.user!.id,
+        name: String(name || ''),
+        description: String(description || ''),
+        mode: mode === 'byok' ? 'byok' : 'managed',
+        selectedConnectionId: selectedConnectionId || null,
+      });
+      const gate1 = storage.getGate1State(project.id);
+      const updatedUser = storage.getUserById(req.user!.id);
+      return res.status(201).json({
+        project,
+        gate1,
+        user: updatedUser,
+      });
+    } catch (err: any) {
+      const status = err.statusCode || 400;
+      return res.status(status).json({ error: err.message || 'فشل إنشاء المشروع.' });
     }
+  });
 
-    // 4. Try Anthropic Claude API
-    if (isAnthropicKey || (pType === 'anthropic' && key && !isGeminiKey && !isGroqKey)) {
-      try {
-        const resp = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': key,
-            'anthropic-version': '2023-06-01',
-          },
-          body: JSON.stringify({
-            model: 'claude-3-5-sonnet-latest',
-            max_tokens: 4096,
-            system: systemInstruction,
-            messages: [{ role: 'user', content: promptText }],
-          }),
-        });
-        if (resp.ok) {
-          const data: any = await resp.json();
-          const text = data?.content?.[0]?.text;
-          if (text) {
-            return { reply: text, modelUsed: requestedModel, providerUsed: provider.name };
-          }
-        }
-      } catch (err) {
-        console.warn('Anthropic call fallback:', err);
-      }
+  // List projects for authenticated user
+  app.get('/api/projects', requireAuth, (req: Request & { user?: UserRecord }, res) => {
+    const projects = storage.getProjectsByOwner(req.user!.id);
+    return res.json({ projects });
+  });
+
+  // 2. GET /api/projects/:id
+  app.get('/api/projects/:id', requireAuth, (req: Request & { user?: UserRecord }, res) => {
+    const project = storage.getProjectById(req.params.id);
+    if (!project) {
+      return res.status(404).json({ error: 'المشروع غير موجود.' });
     }
-
-    // 5. Try Gemini SDK (used for Google Gemini, Google Stitch, or as universal execution engine for configured agents)
-    const candidateKeys = isGeminiKey && key !== systemEnvKey ? [key, systemEnvKey].filter(Boolean) : [systemEnvKey, isGeminiKey ? key : ''].filter(Boolean);
-    for (const geminiKeyToUse of candidateKeys) {
-      try {
-        const geminiModel =
-          requestedModel.startsWith('gemini-') &&
-          !requestedModel.includes('2.5') &&
-          !requestedModel.includes('1.5')
-            ? requestedModel
-            : 'gemini-3.8-flash';
-
-        const ai = new GoogleGenAI({
-          apiKey: geminiKeyToUse,
-          httpOptions: {
-            headers: {
-              'User-Agent': 'aistudio-build',
-            },
-          },
-        });
-
-        const response = await ai.models.generateContent({
-          model: geminiModel,
-          contents: promptText,
-          config: {
-            systemInstruction: `${systemInstruction}\n[Active Factory Agent: ${agent.title} (${agent.gateCode}) | Configured Provider: ${provider.name} | Model: ${requestedModel}]`,
-            temperature: agent.temperature ?? 0.6,
-          },
-        });
-
-        if (response.text) {
-          return { reply: response.text, modelUsed: requestedModel, providerUsed: provider.name };
-        }
-      } catch (err) {
-        console.warn('Gemini SDK attempt fallback:', err);
-      }
+    if (project.ownerId !== req.user!.id) {
+      return res.status(403).json({ error: 'غير مصرح لك بالوصول إلى هذا المشروع.' });
     }
-
-    // 6. Guaranteed resilient response if no external key succeeded
-    return {
-      reply: `تم الاتصال بنجاح وتفعيل "${agent.title}" عبر المزود ${provider.name} (${requestedModel}). الوكيل نشط وجاهز لتنفيذ مهام البوابة ${agent.gate} وتوليد المخرجات الحية.`,
-      modelUsed: requestedModel,
-      providerUsed: provider.name,
-    };
-  };
-
-  // Get current system AI configuration
-  app.get('/api/admin/config', (_req, res) => {
-    res.json({
-      hasSystemEnvKey: Boolean(systemEnvKey),
-      providers: providersConfig,
-      agents: agentsConfig,
+    const approvedArtifact = storage.getGate1ApprovedArtifact(project.id);
+    return res.json({
+      project,
+      gate1ApprovedArtifact: approvedArtifact,
     });
   });
 
-  // Update system AI configuration (providers & agents) and persist to disk
+  // 3. GET /api/projects/:id/gates/1
+  app.get('/api/projects/:id/gates/1', requireAuth, (req: Request & { user?: UserRecord }, res) => {
+    const project = storage.getProjectById(req.params.id);
+    if (!project) {
+      return res.status(404).json({ error: 'المشروع غير موجود.' });
+    }
+    if (project.ownerId !== req.user!.id) {
+      return res.status(403).json({ error: 'غير مصرح لك بالوصول إلى وثيقة هذا المشروع.' });
+    }
+    const state = storage.getGate1State(project.id);
+    if (!state) {
+      return res.status(404).json({ error: 'بيانات البوابة الأولى غير موجودة.' });
+    }
+
+    let aiConnectionSummary: { mode: string; provider: string; model: string; hasKey: boolean } | null = null;
+    if (project.mode === 'byok') {
+      const conn = storage.getDecryptedAIConnectionForUser(req.user!.id, project.selectedConnectionId);
+      aiConnectionSummary = conn
+        ? { mode: 'byok', provider: conn.provider, model: conn.model, hasKey: Boolean(conn.apiKey) }
+        : { mode: 'byok', provider: 'unconfigured', model: 'unconfigured', hasKey: false };
+    } else {
+      const gate1Agent = agentsConfig.find((a) => a.gate === 1) || DEFAULT_AGENTS[0];
+      const gate1Prov = providersConfig.find((p) => p.id === gate1Agent.providerId) || DEFAULT_PROVIDERS[1];
+      aiConnectionSummary = {
+        mode: 'managed',
+        provider: gate1Prov.providerType || 'gemini',
+        model: gate1Agent.model || 'gemini-3.8-flash',
+        hasKey: Boolean(systemEnvKey || gate1Agent.apiKey || gate1Prov.apiKey),
+      };
+    }
+
+    return res.json({
+      ...state,
+      aiConnection: aiConnectionSummary,
+    });
+  });
+
+  // 4. POST /api/projects/:id/gates/1/chat
+  app.post('/api/projects/:id/gates/1/chat', requireAuth, async (req: Request & { user?: UserRecord }, res) => {
+    try {
+      const project = storage.getProjectById(req.params.id);
+      if (!project) {
+        return res.status(404).json({ error: 'المشروع غير موجود.' });
+      }
+      if (project.ownerId !== req.user!.id) {
+        return res.status(403).json({ error: 'غير مصرح لك بالوصول إلى هذا المشروع.' });
+      }
+
+      const { message, expectedVersion } = req.body || {};
+      const userMessage = typeof message === 'string' ? message.trim() : '';
+      if (!userMessage) {
+        return res.status(400).json({ error: 'الرسالة مطلوبة ولا يمكن أن تكون فارغة.' });
+      }
+
+      const gate1State = storage.getGate1State(project.id);
+      if (!gate1State) {
+        return res.status(404).json({ error: 'وثيقة المتطلبات غير موجودة.' });
+      }
+      if (gate1State.locked) {
+        return res.status(409).json({
+          error: 'تم اعتماد وقفل وثيقة المتطلبات للبوابة الأولى ولا يمكن تعديلها.',
+        });
+      }
+      if (typeof expectedVersion === 'number' && expectedVersion !== gate1State.version) {
+        return res.status(409).json({
+          error: `تعارض في إصدار الوثيقة (النسخة المحفوظة v${gate1State.version} مقابل v${expectedVersion}).`,
+        });
+      }
+
+      // CRITICAL: Determine commercial mode strictly from trusted stored project record
+      const trustedMode = project.mode;
+      let providerToUse = '';
+      let modelToUse = '';
+      let apiKeyToUse = '';
+      let endpointToUse = '';
+
+      if (trustedMode === 'byok') {
+        const freshUser = storage.getUserById(req.user!.id)!;
+        if (!freshUser.subscriptionActive) {
+          return res.status(402).json({
+            error: 'اشتراك باقة Build With My AI (50 JOD شهرياً) غير مفعل. لا يمكن تشغيل الوكيل.',
+          });
+        }
+
+        const conn = storage.getDecryptedAIConnectionForUser(req.user!.id, project.selectedConnectionId);
+        if (!conn || !conn.active) {
+          return res.status(400).json({
+            error: 'لا يوجد اتصال ذكاء اصطناعي (BYOK) مفعل لحسابك. يرجى إعداد وتفعيل المفتاح أولاً.',
+          });
+        }
+        if (!conn.apiKey || !conn.apiKey.trim()) {
+          return res.status(401).json({
+            error: `مفتاح API الخاص بك للمزود (${conn.provider}) غير موجود أو فارغ. لن يتم استخدام مفتاح المنصة البديل.`,
+          });
+        }
+
+        // Strict BYOK rules: use exact selected provider & model, NEVER infer from key prefix, NEVER fall back to platform Gemini key
+        providerToUse = conn.provider;
+        modelToUse = conn.model;
+        apiKeyToUse = conn.apiKey;
+        endpointToUse = conn.endpoint;
+      } else {
+        // Managed mode ("Build For Me" - 100 JOD per project)
+        if (!project.entitlementVerified) {
+          return res.status(402).json({
+            error: 'لم يتم تأكيد استحقاق المشروع في باقة Build For Me (100 JOD).',
+          });
+        }
+
+        const gate1Agent = agentsConfig.find((a) => a.gate === 1) || DEFAULT_AGENTS[0];
+        const gate1Prov =
+          providersConfig.find((p) => p.id === gate1Agent.providerId) || DEFAULT_PROVIDERS[1];
+
+        const dedicatedKey = !gate1Agent.useProviderKey ? (gate1Agent.apiKey || '').trim() : '';
+        const provKey = (gate1Prov.apiKey || '').trim();
+
+        if (dedicatedKey || provKey) {
+          providerToUse = gate1Prov.providerType;
+          modelToUse = gate1Agent.model || gate1Prov.model;
+          apiKeyToUse = dedicatedKey || provKey;
+          endpointToUse = gate1Prov.endpoint;
+        } else {
+          // Use OGroup-managed platform Gemini credentials
+          providerToUse = 'gemini';
+          modelToUse =
+            gate1Agent.model && gate1Agent.model.startsWith('gemini-')
+              ? gate1Agent.model
+              : 'gemini-3.8-flash';
+          apiKeyToUse = systemEnvKey;
+          endpointToUse = '';
+        }
+
+        if (!apiKeyToUse) {
+          return res.status(503).json({
+            error: 'مفتاح الذكاء الاصطناعي المدار الخاص بالمنصة (OGroup Managed Key) غير مهيأ على الخادم.',
+          });
+        }
+      }
+
+      const executionResult = await executeRequirementsAgent(
+        {
+          provider: providerToUse,
+          model: modelToUse,
+          apiKey: apiKeyToUse,
+          endpoint: endpointToUse,
+          userMessage,
+          currentDocument: gate1State.document,
+          chatHistory: gate1State.chatHistory.map((m) => ({
+            sender: m.sender,
+            text: m.text,
+          })),
+        },
+        { fetchImpl: options.fetchImpl }
+      );
+
+      const savedTurn = storage.recordGate1AIChatTurn({
+        projectId: project.id,
+        userId: req.user!.id,
+        userMessage,
+        aiReply: executionResult.reply,
+        updatedDocument: executionResult.updatedDocument,
+        provider: executionResult.providerUsed,
+        model: executionResult.modelUsed,
+        usage: executionResult.usage ? (executionResult.usage as Record<string, unknown>) : null,
+        expectedVersion: gate1State.version,
+      });
+
+      return res.json({
+        reply: executionResult.reply,
+        document: savedTurn.document,
+        markdown: savedTurn.markdown,
+        version: savedTurn.version,
+        provider: executionResult.providerUsed,
+        model: executionResult.modelUsed,
+        status: 'succeeded',
+        usage: executionResult.usage,
+        userMessage: savedTurn.userMessageRecord,
+        aiMessage: savedTurn.aiMessageRecord,
+      });
+    } catch (err: any) {
+      const status = err.statusCode || 500;
+      return res.status(status).json({
+        error: err.message || 'فشل تنفيذ طلب وكيل المتطلبات.',
+        status: 'failed',
+      });
+    }
+  });
+
+  // 5. PUT /api/projects/:id/gates/1/document
+  app.put('/api/projects/:id/gates/1/document', requireAuth, (req: Request & { user?: UserRecord }, res) => {
+    try {
+      const project = storage.getProjectById(req.params.id);
+      if (!project) {
+        return res.status(404).json({ error: 'المشروع غير موجود.' });
+      }
+      if (project.ownerId !== req.user!.id) {
+        return res.status(403).json({ error: 'غير مصرح لك بتعديل وثيقة هذا المشروع.' });
+      }
+
+      const currentState = storage.getGate1State(project.id);
+      if (!currentState) {
+        return res.status(404).json({ error: 'وثيقة المتطلبات غير موجودة.' });
+      }
+
+      const { document, markdown, expectedVersion } = req.body || {};
+      let targetDoc: RequirementsDocument;
+
+      if (document && typeof document === 'object') {
+        const merged = {
+          ...currentState.document,
+          ...document,
+        };
+        const validation = validateRequirementsDocument(merged);
+        if (!validation.valid || !validation.document) {
+          return res.status(400).json({
+            error: `فشل التحقق من الوثيقة: ${validation.errors.join(' | ')}`,
+            errors: validation.errors,
+          });
+        }
+        targetDoc = validation.document;
+      } else if (typeof markdown === 'string') {
+        if (!markdown.trim()) {
+          return res.status(400).json({ error: 'محتوى الوثيقة لا يمكن أن يكون فارغاً.' });
+        }
+        const parsed = parseMarkdownToRequirements(markdown, currentState.document);
+        const validation = validateRequirementsDocument(parsed);
+        if (!validation.valid || !validation.document) {
+          return res.status(400).json({
+            error: `فشل التحقق من الوثيقة: ${validation.errors.join(' | ')}`,
+            errors: validation.errors,
+          });
+        }
+        targetDoc = validation.document;
+      } else {
+        return res.status(400).json({ error: 'يرجى إرسال الوثيقة المهيكلة (document) أو النص (markdown).' });
+      }
+
+      const saved = storage.updateGate1DocumentManual({
+        projectId: project.id,
+        userId: req.user!.id,
+        document: targetDoc,
+        expectedVersion: typeof expectedVersion === 'number' ? expectedVersion : undefined,
+      });
+
+      return res.json({
+        document: saved.document,
+        markdown: saved.markdown,
+        version: saved.version,
+        updatedAt: saved.updatedAt,
+      });
+    } catch (err: any) {
+      const status = err.statusCode || 400;
+      return res.status(status).json({ error: err.message || 'فشل حفظ التعديلات اليدوية.' });
+    }
+  });
+
+  // 6. POST /api/projects/:id/gates/1/approve
+  app.post('/api/projects/:id/gates/1/approve', requireAuth, (req: Request & { user?: UserRecord }, res) => {
+    try {
+      const project = storage.getProjectById(req.params.id);
+      if (!project) {
+        return res.status(404).json({ error: 'المشروع غير موجود.' });
+      }
+      if (project.ownerId !== req.user!.id) {
+        return res.status(403).json({ error: 'غير مصرح لك باعتماد هذا المشروع.' });
+      }
+
+      const currentState = storage.getGate1State(project.id);
+      if (!currentState) {
+        return res.status(404).json({ error: 'وثيقة المتطلبات غير موجودة.' });
+      }
+
+      const { document, markdown, expectedVersion } = req.body || {};
+      let finalDocument: RequirementsDocument | undefined;
+
+      if (document && typeof document === 'object') {
+        const validation = validateRequirementsDocument(document, { strictForApproval: true });
+        if (!validation.valid || !validation.document) {
+          return res.status(400).json({
+            error: `لا يمكن الاعتماد: ${validation.errors.join(' | ')}`,
+            errors: validation.errors,
+          });
+        }
+        finalDocument = validation.document;
+      } else if (typeof markdown === 'string' && markdown.trim()) {
+        const parsed = parseMarkdownToRequirements(markdown, currentState.document);
+        const validation = validateRequirementsDocument(parsed, { strictForApproval: true });
+        if (!validation.valid || !validation.document) {
+          return res.status(400).json({
+            error: `لا يمكن الاعتماد: ${validation.errors.join(' | ')}`,
+            errors: validation.errors,
+          });
+        }
+        finalDocument = validation.document;
+      }
+
+      const approval = storage.approveGate1({
+        projectId: project.id,
+        userId: req.user!.id,
+        finalDocument,
+        expectedVersion: typeof expectedVersion === 'number' ? expectedVersion : undefined,
+      });
+
+      const updatedProject = storage.getProjectById(project.id)!;
+
+      return res.json({
+        approval,
+        project: updatedProject,
+      });
+    } catch (err: any) {
+      const status = err.statusCode || 400;
+      return res.status(status).json({ error: err.message || 'فشل اعتماد البوابة الأولى.' });
+    }
+  });
+
+  // 7. GET /api/projects/:id/gates/1/approved-artifact
+  app.get('/api/projects/:id/gates/1/approved-artifact', requireAuth, (req: Request & { user?: UserRecord }, res) => {
+    const project = storage.getProjectById(req.params.id);
+    if (!project) {
+      return res.status(404).json({ error: 'المشروع غير موجود.' });
+    }
+    if (project.ownerId !== req.user!.id) {
+      return res.status(403).json({ error: 'غير مصرح لك بالوصول إلى مخرجات هذا المشروع.' });
+    }
+
+    const artifact = storage.getGate1ApprovedArtifact(project.id);
+    if (!artifact) {
+      return res.status(404).json({
+        error: 'لم يتم اعتماد وثيقة المتطلبات في البوابة الأولى بعد. يجب اعتماد البوابة الأولى أولاً.',
+      });
+    }
+
+    return res.json({ artifact });
+  });
+
+  // =========================================================================
+  // ADMIN CONFIGURATION ENDPOINTS (PRESERVED FOR ADMIN PORTAL)
+  // =========================================================================
+
+  app.get('/api/admin/config', (_req, res) => {
+    res.json({
+      hasSystemEnvKey: Boolean(systemEnvKey),
+      providers: providersConfig.map((p) => ({ ...p, apiKey: '' })),
+      agents: agentsConfig.map((a) => ({ ...a, apiKey: '' })),
+    });
+  });
+
   app.post('/api/admin/config', (req, res) => {
-    const { providers, agents } = req.body;
+    const { providers, agents } = req.body || {};
     if (Array.isArray(providers) && providers.length > 0) {
       providersConfig = normalizeProviders(providers);
     }
@@ -762,157 +956,85 @@ async function startServer() {
     savePersistedConfig(providersConfig, agentsConfig);
     res.json({
       ok: true,
-      providers: providersConfig,
-      agents: agentsConfig,
+      providers: providersConfig.map((p) => ({ ...p, apiKey: '' })),
+      agents: agentsConfig.map((a) => ({ ...a, apiKey: '' })),
     });
   });
 
-  // Live test endpoint for an Agent or Provider connection
   app.post('/api/admin/test-connection', async (req, res) => {
     const startTime = Date.now();
     try {
-      const { gate, customKey, promptText, providerId, providers, agents, agentConfig, providerConfig } = req.body;
-      if (Array.isArray(providers) && providers.length > 0) {
-        providersConfig = normalizeProviders(providers);
-      }
-      if (Array.isArray(agents) && agents.length > 0) {
-        agentsConfig = normalizeAgents(agents, providersConfig);
-      }
-      savePersistedConfig(providersConfig, agentsConfig);
-
-      const { agent, provider, effectiveKey, requestedModel, keySource } = resolveExecutionConfig(
-        Number(gate) || 1,
-        customKey,
-        providerId,
-        agentConfig,
-        providerConfig
-      );
-
-      const testPrompt =
-        promptText ||
-        `أكد جاهزيتك للعمل كـ "${agent.title}" في البوابة ${agent.gate} (${agent.gateCode}) عبر المزود ${provider.name} (${requestedModel}) بجملة عربية احترافية واحدة مختصرة تذكر فيها اسم البوابة والمزود.`;
-
-      const { reply, modelUsed, providerUsed } = await executeMultiProviderPrompt({
-        provider,
-        agent,
-        effectiveKey,
-        requestedModel,
-        promptText: testPrompt,
-        systemInstruction: agent.systemPrompt,
-      });
-
-      const latencyMs = Math.max(28, Date.now() - startTime);
-      res.json({
-        ok: true,
-        latencyMs,
-        model: modelUsed,
-        providerName: providerUsed,
-        keySource,
-        reply,
-      });
-    } catch (error: any) {
-      console.error('Connection Test Error:', error);
-      res.json({
-        ok: true,
-        latencyMs: Math.max(35, Date.now() - startTime),
-        model: 'gemini-3.8-flash',
-        keySource: 'System Vault',
-        reply: 'تم التحقق من ربط المفتاح والوكيل بنجاح، والاتصال نشط وجاهز للتشغيل.',
-      });
-    }
-  });
-
-  // API endpoint for AI chat in OGroup AI Factory gates
-  app.post('/api/chat', async (req, res) => {
-    try {
-      const { message, gate, mode, projectContext, byokKey, providers, agents, agentConfig, providerConfig } = req.body;
+      const { gate, customKey, promptText } = req.body || {};
       const gateNum = Number(gate) || 1;
+      const agent = agentsConfig.find((a) => a.gate === gateNum) || DEFAULT_AGENTS[0];
+      const provider = providersConfig.find((p) => p.id === agent.providerId) || DEFAULT_PROVIDERS[1];
+      const effectiveKey = (customKey || agent.apiKey || provider.apiKey || systemEnvKey || '').trim();
 
-      if (Array.isArray(providers) && providers.length > 0) {
-        providersConfig = normalizeProviders(providers);
-      }
-      if (Array.isArray(agents) && agents.length > 0) {
-        agentsConfig = normalizeAgents(agents, providersConfig);
-      }
-      savePersistedConfig(providersConfig, agentsConfig);
-
-      const { agent, provider, effectiveKey, requestedModel, keySource } = resolveExecutionConfig(
-        gateNum,
-        mode === 'byok' ? byokKey : undefined,
-        undefined,
-        agentConfig,
-        providerConfig
-      );
-
-      if (!agent.enabled) {
-        return res.status(400).json({
-          error: `الوكيل المخصص للبوابة ${gateNum} (${agent.title}) متوقف مؤقتاً من قبل إدارة النظام.`,
-        });
+      if (!effectiveKey) {
+        return res.status(400).json({ ok: false, error: 'مفتاح API غير متوفر لاختبار الاتصال.' });
       }
 
-      const gateNames = [
-        'Gate 1: Product Requirements & Business Analysis (PRD)',
-        'Gate 2: UI/UX Interactive Design (Google Stitch Studio)',
-        'Gate 3: Full-Stack Code Generation & Architecture',
-        'Gate 4: Automated QA, Testing & Security Audit',
-        'Gate 5: Production Packaging, Docker & Cloud Release',
-      ];
-      const currentGateName = gateNames[gateNum - 1] || 'General';
-
-      const gateDeliverableInstructions: Record<number, string> = {
-        1: 'قم بصياغة مخرجات واضحة ومفصلة لوثيقة متطلبات المنتج (PRD) باللغة العربية (الأهداف، الميزات الأساسية، الأدوار، وتدفق المستخدم) بحيث يتم تحديث وثيقة الـ PRD الحية مباشرة.',
-        2: 'قم بتوصيف وتحديث التصميم التفاعلي الحي في لوحة Google Stitch باللغة العربية (الألوان، الشاشات، المكونات التفاعلية، وتجربة المستخدم).',
-        3: 'قم بكتابة شيفرة برمجية حقيقية (React / TypeScript / Tailwind CSS أو SQL/API) داخل بلوك كود برمجي واضح مع شرح مختصر بالعربية ليتم إضافتها مباشرة إلى مستودع ملفات الكود الحي.',
-        4: 'قم بإصدار تقرير فحص جودة وأمان سيبراني (QA & OWASP Security Audit) مفصل للمشروع مع نتائج الفحص ونقاط القوة والتوصيات.',
-        5: 'قم بإعداد خطة الإطلاق السحابي وتكوين Docker وملف التسليم النهائي للمشروع.',
-      };
-
-      const systemInstruction = `${agent.systemPrompt}
-Project Name: "${projectContext?.name || 'Untitled'}"
-Project Description: "${projectContext?.description || ''}"
-Current Stage: ${currentGateName}
-Active Agent: ${agent.title} (${agent.gateCode})
-Assigned AI Provider: ${provider.name} (${requestedModel})
-Stage Deliverable Directive: ${gateDeliverableInstructions[gateNum] || ''}
-Respond in clear, professional Arabic tailored to completing Gate ${gateNum} and updating its live workspace deliverable.`;
-
-      const { reply, modelUsed, providerUsed } = await executeMultiProviderPrompt({
-        provider,
-        agent,
-        effectiveKey,
-        requestedModel,
-        promptText: message,
-        systemInstruction,
+      const ai = new GoogleGenAI({
+        apiKey: effectiveKey,
+        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
       });
 
-      res.json({
-        reply,
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents:
+          promptText ||
+          `أكد جاهزيتك للعمل كـ "${agent.title}" في البوابة ${agent.gate} بجملة عربية مختصرة.`,
+      });
+
+      const latencyMs = Date.now() - startTime;
+      return res.json({
+        ok: true,
+        gate: agent.gate,
         agentTitle: agent.title,
-        providerName: providerUsed,
-        modelUsed,
-        keySource,
+        providerName: provider.name,
+        model: agent.model,
+        keySource: customKey ? 'Custom Key' : 'System Vault',
+        latencyMs,
+        reply: response.text || 'الوكيل متصل وجاهز.',
       });
     } catch (error: any) {
-      console.error('AI Chat Error:', error);
-      res.json({
-        reply: 'تم استلام توجيهك وتحديث مخرجات البوابة في مساحة العمل الحية بنجاح. يمكنك مراجعتها والضغط على زر الاعتماد للمتابعة.',
-        modelUsed: 'gemini-3.8-flash',
-        keySource: 'System Vault',
+      return res.status(500).json({
+        ok: false,
+        error: error.message || 'فشل الاتصال بالمزود.',
       });
     }
   });
 
-  // Create Vite server in middleware mode
-  const vite = await createViteServer({
-    server: { middlewareMode: true },
-    appType: 'spa',
-  });
+  return { app, storage };
+}
 
-  app.use(vite.middlewares);
+async function startServer() {
+  const { app } = createApp();
 
-  app.listen(3000, '0.0.0.0', () => {
-    console.log('Server running on http://0.0.0.0:3000');
+  if (process.env.NODE_ENV !== 'production') {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*all', (_req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  const PORT = Number(process.env.PORT) || 3000;
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`OGroup AI Software Factory server running on port ${PORT}`);
   });
 }
 
-startServer();
+const isMainModule =
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+
+if (isMainModule) {
+  startServer();
+}
