@@ -16,11 +16,16 @@ jobs:
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'npm'
+          node-version: '22.x'
+
+      - name: Verify Node.js and built-in node:sqlite support
+        run: |
+          node -v
+          npm -v
+          node -e "const sqlite = require('node:sqlite'); if (!sqlite || !sqlite.DatabaseSync) { throw new Error('node:sqlite DatabaseSync unavailable'); }"
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --no-audit --no-fund
 
       - name: TypeScript validation (tsc --noEmit)
         run: npm run lint

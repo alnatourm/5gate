@@ -150,7 +150,9 @@ describe('OGroup AI Factory - Task 02: Gate 1 Full Functional Verification Suite
     return new Response(
       JSON.stringify({
         candidates: [{ content: { parts: [{ text: JSON.stringify(clinicPayload) }] } }],
+        choices: [{ message: { content: JSON.stringify(clinicPayload) } }],
         usageMetadata: { promptTokenCount: 295, candidatesTokenCount: 340, totalTokenCount: 635 },
+        usage: { prompt_tokens: 295, completion_tokens: 340, total_tokens: 635 },
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     );
@@ -377,6 +379,32 @@ describe('OGroup AI Factory - Task 02: Gate 1 Full Functional Verification Suite
     expect(checkState.status).toBe(200);
     expect(checkState.body.version).toBe(1);
     expect(checkState.body.chatHistory.length).toBe(1); // Only initial greeting remains
+
+    // Now update customer's BYOK connection with a valid key and verify it uses customer's provider & model
+    const validConn = await request(appInstance)
+      .post('/api/ai-connections')
+      .set('Authorization', `Bearer ${userAToken}`)
+      .send({
+        provider: 'openai',
+        model: 'gpt-4o-2024-11-20',
+        apiKey: 'sk-VALID_CUSTOMER_BYOK_KEY_8888',
+        active: true,
+      });
+    expect(validConn.status).toBe(200);
+
+    const validByokChat = await request(appInstance)
+      .post(`/api/projects/${byokProjectId}/gates/1/chat`)
+      .set('Authorization', `Bearer ${userAToken}`)
+      .send({
+        message: 'أريد نظام إدارة عيادة طبية.',
+        expectedVersion: 1,
+      });
+    expect(validByokChat.status).toBe(200);
+    expect(validByokChat.body.provider).toBe('openai');
+    expect(validByokChat.body.model).toBe('gpt-4o-2024-11-20');
+    expect(lastApiKeySentToProvider).toBe('sk-VALID_CUSTOMER_BYOK_KEY_8888');
+    expect(lastModelSentToProvider).toBe('gpt-4o-2024-11-20');
+    expect(validByokChat.body.version).toBe(2);
   });
 
   it('Test E: Project isolation blocks User B from accessing or modifying User A project and Gate 1 document', async () => {
