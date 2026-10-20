@@ -16,6 +16,25 @@ export interface ResolvedExecutionTarget {
 }
 
 export function inferProviderType(prov: Partial<ProviderConfig> & { provider?: string }): ProviderType {
+  const idAndName = `${prov.id || ''} ${prov.name || ''}`.toLowerCase();
+  const modelLower = (prov.model || '').toLowerCase().trim();
+  const keyTrimmed = (prov.apiKey || '').trim();
+
+  // Strong identity signals from provider ID, Name, or API key prefix take precedence over stale default types
+  if (idAndName.includes('groq') || keyTrimmed.startsWith('gsk_')) return 'groq';
+  if (idAndName.includes('stitch')) return 'stitch';
+  if (idAndName.includes('openrouter') || keyTrimmed.startsWith('sk-or-')) return 'openrouter';
+  if (idAndName.includes('anthropic') || idAndName.includes('claude') || keyTrimmed.startsWith('sk-ant-')) return 'anthropic';
+  if (idAndName.includes('deepseek')) return 'deepseek';
+  if (idAndName.includes('mistral') || idAndName.includes('codestral')) return 'mistral';
+  if (idAndName.includes('xai') || idAndName.includes('grok')) return 'xai';
+  if (idAndName.includes('perplexity') || idAndName.includes('sonar')) return 'perplexity';
+  if (idAndName.includes('together')) return 'together';
+  if (idAndName.includes('cohere')) return 'cohere';
+  if (idAndName.includes('v0')) return 'v0';
+  if (idAndName.includes('openai')) return 'openai';
+  if (idAndName.includes('gemini')) return 'gemini';
+
   const explicit = (prov.providerType || prov.provider || '').toLowerCase().trim();
   if (
     explicit === 'stitch' ||
@@ -34,8 +53,23 @@ export function inferProviderType(prov: Partial<ProviderConfig> & { provider?: s
     explicit === 'cloud' ||
     explicit === 'custom'
   ) {
+    // Guard against a non-Gemini model on a card that accidentally kept 'gemini' or 'stitch' type
+    if (explicit === 'gemini' || explicit === 'stitch') {
+      if (modelLower.includes('llama-') || modelLower.includes('mixtral-')) return 'groq';
+      if (modelLower.startsWith('gpt-') || modelLower.startsWith('o1') || modelLower.startsWith('o3')) return 'openai';
+      if (modelLower.startsWith('claude-')) return 'anthropic';
+      if (modelLower.startsWith('deepseek-')) return 'deepseek';
+    }
     return explicit;
   }
+
+  if (modelLower.includes('llama-') || modelLower.includes('mixtral-')) return 'groq';
+  if (modelLower.startsWith('gpt-') || modelLower.startsWith('o1') || modelLower.startsWith('o3')) return 'openai';
+  if (modelLower.startsWith('claude-')) return 'anthropic';
+  if (modelLower.startsWith('deepseek-')) return 'deepseek';
+  if (modelLower.includes('codestral') || modelLower.startsWith('mistral-')) return 'mistral';
+  if (modelLower.startsWith('grok-')) return 'xai';
+  if (modelLower.startsWith('openrouter/')) return 'openrouter';
 
   const hay = `${prov.id || ''} ${prov.name || ''} ${prov.endpoint || ''}`.toLowerCase();
   if (hay.includes('stitch')) return 'stitch';
@@ -54,37 +88,372 @@ export function inferProviderType(prov: Partial<ProviderConfig> & { provider?: s
   return 'custom';
 }
 
+export interface ProviderEndpointSpec {
+  providerType: ProviderType;
+  defaultEndpoint: string;
+  allowedHosts: string[];
+  operationPath: string;
+  protocol:
+    | 'gemini_native'
+    | 'openai_chat_completions'
+    | 'anthropic_messages'
+    | 'openrouter_chat_completions'
+    | 'perplexity_chat_completions'
+    | 'cohere_v2_chat'
+    | 'stitch_integration'
+    | 'unsupported_protocol'
+    | 'openai_compatible_custom';
+}
+
+export const PROVIDER_ENDPOINT_REGISTRY: Record<ProviderType, ProviderEndpointSpec> = {
+  gemini: {
+    providerType: 'gemini',
+    defaultEndpoint: 'https://generativelanguage.googleapis.com/v1beta',
+    allowedHosts: ['generativelanguage.googleapis.com'],
+    operationPath: '/v1beta',
+    protocol: 'gemini_native',
+  },
+  groq: {
+    providerType: 'groq',
+    defaultEndpoint: 'https://api.groq.com/openai/v1/chat/completions',
+    allowedHosts: ['api.groq.com'],
+    operationPath: '/openai/v1/chat/completions',
+    protocol: 'openai_chat_completions',
+  },
+  openai: {
+    providerType: 'openai',
+    defaultEndpoint: 'https://api.openai.com/v1/chat/completions',
+    allowedHosts: ['api.openai.com'],
+    operationPath: '/v1/chat/completions',
+    protocol: 'openai_chat_completions',
+  },
+  anthropic: {
+    providerType: 'anthropic',
+    defaultEndpoint: 'https://api.anthropic.com/v1/messages',
+    allowedHosts: ['api.anthropic.com'],
+    operationPath: '/v1/messages',
+    protocol: 'anthropic_messages',
+  },
+  deepseek: {
+    providerType: 'deepseek',
+    defaultEndpoint: 'https://api.deepseek.com/v1/chat/completions',
+    allowedHosts: ['api.deepseek.com'],
+    operationPath: '/v1/chat/completions',
+    protocol: 'openai_chat_completions',
+  },
+  mistral: {
+    providerType: 'mistral',
+    defaultEndpoint: 'https://api.mistral.ai/v1/chat/completions',
+    allowedHosts: ['api.mistral.ai'],
+    operationPath: '/v1/chat/completions',
+    protocol: 'openai_chat_completions',
+  },
+  xai: {
+    providerType: 'xai',
+    defaultEndpoint: 'https://api.x.ai/v1/chat/completions',
+    allowedHosts: ['api.x.ai'],
+    operationPath: '/v1/chat/completions',
+    protocol: 'openai_chat_completions',
+  },
+  openrouter: {
+    providerType: 'openrouter',
+    defaultEndpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    allowedHosts: ['openrouter.ai'],
+    operationPath: '/api/v1/chat/completions',
+    protocol: 'openrouter_chat_completions',
+  },
+  perplexity: {
+    providerType: 'perplexity',
+    defaultEndpoint: 'https://api.perplexity.ai/chat/completions',
+    allowedHosts: ['api.perplexity.ai'],
+    operationPath: '/chat/completions',
+    protocol: 'perplexity_chat_completions',
+  },
+  together: {
+    providerType: 'together',
+    defaultEndpoint: 'https://api.together.xyz/v1/chat/completions',
+    allowedHosts: ['api.together.xyz'],
+    operationPath: '/v1/chat/completions',
+    protocol: 'openai_chat_completions',
+  },
+  cohere: {
+    providerType: 'cohere',
+    defaultEndpoint: 'https://api.cohere.com/v2/chat',
+    allowedHosts: ['api.cohere.com'],
+    operationPath: '/v2/chat',
+    protocol: 'cohere_v2_chat',
+  },
+  v0: {
+    providerType: 'v0',
+    defaultEndpoint: 'https://api.v0.dev/v1/chat/completions',
+    allowedHosts: ['api.v0.dev'],
+    operationPath: '/v1/chat/completions',
+    protocol: 'openai_chat_completions',
+  },
+  stitch: {
+    providerType: 'stitch',
+    defaultEndpoint: 'https://stitch.withgoogle.com/api/v1/generate',
+    allowedHosts: ['stitch.withgoogle.com'],
+    operationPath: '/api/v1/generate',
+    protocol: 'stitch_integration',
+  },
+  cloud: {
+    providerType: 'cloud',
+    defaultEndpoint: 'https://bedrock-runtime.us-east-1.amazonaws.com',
+    allowedHosts: ['amazonaws.com', 'azure.com', 'openai.azure.com'],
+    operationPath: '',
+    protocol: 'unsupported_protocol',
+  },
+  custom: {
+    providerType: 'custom',
+    defaultEndpoint: '',
+    allowedHosts: [],
+    operationPath: '/v1/chat/completions',
+    protocol: 'openai_compatible_custom',
+  },
+};
+
 export function getDefaultEndpointForProviderType(providerType: ProviderType): string {
-  switch (providerType) {
-    case 'gemini':
-      return 'https://generativelanguage.googleapis.com/v1beta';
-    case 'openai':
-      return 'https://api.openai.com/v1/chat/completions';
-    case 'anthropic':
-      return 'https://api.anthropic.com/v1/messages';
-    case 'groq':
-      return 'https://api.groq.com/openai/v1/chat/completions';
-    case 'deepseek':
-      return 'https://api.deepseek.com/v1/chat/completions';
-    case 'mistral':
-      return 'https://api.mistral.ai/v1/chat/completions';
-    case 'xai':
-      return 'https://api.x.ai/v1/chat/completions';
-    case 'openrouter':
-      return 'https://openrouter.ai/api/v1/chat/completions';
-    case 'v0':
-      return 'https://api.v0.dev/v1/chat/completions';
-    case 'perplexity':
-      return 'https://api.perplexity.ai/chat/completions';
-    case 'together':
-      return 'https://api.together.xyz/v1/chat/completions';
-    case 'cohere':
-      return 'https://api.cohere.com/v2/chat';
-    case 'stitch':
-      return 'https://stitch.withgoogle.com/api/v1/generate';
-    default:
-      return '';
+  return PROVIDER_ENDPOINT_REGISTRY[providerType]?.defaultEndpoint ?? '';
+}
+
+function collapseDuplicateOperationSegments(pathname: string): string {
+  let clean = pathname.replace(/\/{2,}/g, '/');
+  while (/\/chat\/completions\/chat\/completions$/i.test(clean)) {
+    clean = clean.replace(/\/chat\/completions\/chat\/completions$/i, '/chat/completions');
   }
+  while (/\/v1\/v1(\/|$)/i.test(clean)) {
+    clean = clean.replace(/\/v1\/v1(\/|$)/i, '/v1$1');
+  }
+  while (/\/messages\/messages$/i.test(clean)) {
+    clean = clean.replace(/\/messages\/messages$/i, '/messages');
+  }
+  return clean;
+}
+
+export function validateAndNormalizeEndpointForProvider(
+  providerType: ProviderType,
+  rawEndpoint?: string,
+  options: { allowRepairOnBoot?: boolean } = {}
+): { valid: boolean; endpoint: string; error?: string } {
+  const spec = PROVIDER_ENDPOINT_REGISTRY[providerType] || PROVIDER_ENDPOINT_REGISTRY.custom;
+  const trimmed = (rawEndpoint || '').trim();
+
+  if (!trimmed) {
+    if (providerType === 'custom') {
+      return {
+        valid: false,
+        endpoint: '',
+        error: 'يجب تحديد عنوان الاتصال (Endpoint URL) للمزود المخصص (custom).',
+      };
+    }
+    return { valid: true, endpoint: spec.defaultEndpoint };
+  }
+
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(trimmed);
+  } catch {
+    if (options.allowRepairOnBoot && spec.defaultEndpoint) {
+      return { valid: true, endpoint: spec.defaultEndpoint };
+    }
+    return {
+      valid: false,
+      endpoint: trimmed,
+      error: `عنوان الاتصال "${trimmed}" غير صالح. يجب أن يكون رابط HTTP/HTTPS كامل.`,
+    };
+  }
+
+  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    return {
+      valid: false,
+      endpoint: trimmed,
+      error: `بروتوكول الرابط "${parsedUrl.protocol}" غير مدعوم. استخدم https:// أو http://.`,
+    };
+  }
+
+  const hostLower = parsedUrl.hostname.toLowerCase();
+
+  // For known provider types (non-custom), enforce host matching against the central provider registry
+  if (providerType !== 'custom') {
+    const hostAllowed = spec.allowedHosts.some(
+      (allowed) => hostLower === allowed || hostLower.endsWith(`.${allowed}`)
+    );
+    if (!hostAllowed) {
+      if (options.allowRepairOnBoot && spec.defaultEndpoint) {
+        return { valid: true, endpoint: spec.defaultEndpoint };
+      }
+      return {
+        valid: false,
+        endpoint: trimmed,
+        error: `عدم تطابق عنوان الاتصال: المزود "${providerType}" لا يمكنه استخدام الرابط "${trimmed}" التابع لمزود آخر أو نطاق غير متوافق. العنوان الصحيح هو: ${spec.defaultEndpoint}`,
+      };
+    }
+
+    // Normalize base URLs and operation paths for the known provider
+    const cleanPath = collapseDuplicateOperationSegments(
+      parsedUrl.pathname.replace(/\/+$/, '') || ''
+    );
+    const pathLower = cleanPath.toLowerCase();
+
+    if (providerType === 'groq') {
+      if (
+        !pathLower ||
+        pathLower === '/openai' ||
+        pathLower === '/openai/v1' ||
+        pathLower === '/v1' ||
+        pathLower === '/v1/chat/completions' ||
+        pathLower === '/chat/completions' ||
+        pathLower === '/openai/v1/chat/completions'
+      ) {
+        parsedUrl.pathname = '/openai/v1/chat/completions';
+        return { valid: true, endpoint: parsedUrl.toString() };
+      }
+      return {
+        valid: false,
+        endpoint: trimmed,
+        error: `مسار عنوان Groq غير صالح (${cleanPath}). المسار الصحيح هو /openai/v1/chat/completions.`,
+      };
+    }
+
+    if (
+      providerType === 'openai' ||
+      providerType === 'deepseek' ||
+      providerType === 'mistral' ||
+      providerType === 'xai' ||
+      providerType === 'together' ||
+      providerType === 'v0'
+    ) {
+      if (
+        !pathLower ||
+        pathLower === '/v1' ||
+        pathLower === '/chat/completions' ||
+        pathLower === '/v1/chat/completions'
+      ) {
+        parsedUrl.pathname = '/v1/chat/completions';
+        return { valid: true, endpoint: parsedUrl.toString() };
+      }
+      return {
+        valid: false,
+        endpoint: trimmed,
+        error: `مسار الاتصال للمزود "${providerType}" غير صالح (${cleanPath}). المسار المطلوب هو /v1/chat/completions.`,
+      };
+    }
+
+    if (providerType === 'anthropic') {
+      if (!pathLower || pathLower === '/v1' || pathLower === '/messages' || pathLower === '/v1/messages') {
+        parsedUrl.pathname = '/v1/messages';
+        return { valid: true, endpoint: parsedUrl.toString() };
+      }
+      return {
+        valid: false,
+        endpoint: trimmed,
+        error: `مسار الاتصال لمزود Anthropic غير صالح (${cleanPath}). المسار المطلوب هو /v1/messages.`,
+      };
+    }
+
+    if (providerType === 'openrouter') {
+      if (
+        !pathLower ||
+        pathLower === '/api' ||
+        pathLower === '/api/v1' ||
+        pathLower === '/v1' ||
+        pathLower === '/v1/chat/completions' ||
+        pathLower === '/api/v1/chat/completions'
+      ) {
+        parsedUrl.pathname = '/api/v1/chat/completions';
+        return { valid: true, endpoint: parsedUrl.toString() };
+      }
+      return {
+        valid: false,
+        endpoint: trimmed,
+        error: `مسار الاتصال لمزود OpenRouter غير صالح (${cleanPath}). المسار المطلوب هو /api/v1/chat/completions.`,
+      };
+    }
+
+    if (providerType === 'perplexity') {
+      if (
+        !pathLower ||
+        pathLower === '/v1' ||
+        pathLower === '/v1/chat/completions' ||
+        pathLower === '/chat/completions'
+      ) {
+        parsedUrl.pathname = '/chat/completions';
+        return { valid: true, endpoint: parsedUrl.toString() };
+      }
+      return {
+        valid: false,
+        endpoint: trimmed,
+        error: `مسار الاتصال لمزود Perplexity غير صالح (${cleanPath}). المسار المطلوب هو /chat/completions.`,
+      };
+    }
+
+    if (providerType === 'cohere') {
+      if (!pathLower || pathLower === '/v2' || pathLower === '/v1/chat' || pathLower === '/v2/chat' || pathLower === '/chat') {
+        parsedUrl.pathname = '/v2/chat';
+        return { valid: true, endpoint: parsedUrl.toString() };
+      }
+      return {
+        valid: false,
+        endpoint: trimmed,
+        error: `مسار الاتصال لمزود Cohere غير صالح (${cleanPath}). المسار المطلوب هو /v2/chat.`,
+      };
+    }
+
+    if (providerType === 'gemini') {
+      if (!pathLower || pathLower === '/v1' || pathLower === '/v1beta') {
+        parsedUrl.pathname = '/v1beta';
+        return { valid: true, endpoint: parsedUrl.toString() };
+      }
+      if (pathLower.includes(':generatecontent')) {
+        return { valid: true, endpoint: parsedUrl.toString() };
+      }
+      return {
+        valid: false,
+        endpoint: trimmed,
+        error: `مسار الاتصال لمزود Gemini غير صالح (${cleanPath}).`,
+      };
+    }
+
+    return { valid: true, endpoint: parsedUrl.toString() };
+  }
+
+  // Custom provider validation (providerType === 'custom')
+  if (
+    hostLower === 'generativelanguage.googleapis.com' ||
+    hostLower === 'api.anthropic.com' ||
+    hostLower === 'stitch.withgoogle.com' ||
+    hostLower === 'api.cohere.com'
+  ) {
+    return {
+      valid: false,
+      endpoint: trimmed,
+      error: `الرابط "${trimmed}" يتبع بروتوكول مزود خاص غير متوافق مع وضع OpenAI-Compatible Custom. يرجى اختيار نوع المزود الصحيح.`,
+    };
+  }
+
+  const cleanCustomPath = collapseDuplicateOperationSegments(parsedUrl.pathname.replace(/\/+$/, ''));
+  if (!cleanCustomPath || cleanCustomPath === '/') {
+    parsedUrl.pathname = '/v1/chat/completions';
+  } else if (cleanCustomPath.toLowerCase() === '/v1' || cleanCustomPath.toLowerCase() === '/openai/v1') {
+    parsedUrl.pathname = `${cleanCustomPath}/chat/completions`;
+  } else {
+    parsedUrl.pathname = cleanCustomPath;
+  }
+
+  return { valid: true, endpoint: parsedUrl.toString() };
+}
+
+/**
+ * Normalizes provider endpoints when valid or when repairing legacy persisted state on boot.
+ */
+export function normalizeEndpointForProviderType(
+  providerType: ProviderType,
+  rawEndpoint?: string,
+  options: { allowRepairOnBoot?: boolean } = {}
+): string {
+  const res = validateAndNormalizeEndpointForProvider(providerType, rawEndpoint, options);
+  return res.endpoint;
 }
 
 /**
@@ -155,10 +524,15 @@ export function resolveAdminTargetCredentials(params: {
   // 1. Direct provider test (when providerId is explicitly specified)
   if (providerId) {
     const foundProv = providers.find((p) => p.id === providerId);
+    const inferredType = inferProviderType({ ...foundProv, ...providerOverride });
+    const rawEndpoint =
+      providerOverride?.endpoint !== undefined
+        ? providerOverride.endpoint
+        : foundProv?.endpoint || '';
     const mergedProv: ProviderConfig = {
       id: providerId,
       name: providerOverride?.name || foundProv?.name || providerId,
-      providerType: inferProviderType({ ...foundProv, ...providerOverride }),
+      providerType: inferredType,
       model: (providerOverride?.model || foundProv?.model || '').trim(),
       status: providerOverride?.status || foundProv?.status || 'active',
       enabled:
@@ -177,10 +551,7 @@ export function resolveAdminTargetCredentials(params: {
           : foundProv
           ? foundProv.useSystemEnv
           : true,
-      endpoint:
-        providerOverride?.endpoint !== undefined
-          ? providerOverride.endpoint
-          : foundProv?.endpoint || '',
+      endpoint: normalizeEndpointForProviderType(inferredType, rawEndpoint),
       latency: foundProv?.latency || '100ms',
       assignedGates: foundProv?.assignedGates || [],
       monthlyQuotaJod: foundProv?.monthlyQuotaJod || 1000,
@@ -214,7 +585,7 @@ export function resolveAdminTargetCredentials(params: {
       configuredModel: mergedProv.model,
       apiKey,
       keySource,
-      endpoint: mergedProv.endpoint || getDefaultEndpointForProviderType(pType),
+      endpoint: mergedProv.endpoint,
       agentGate: gate,
     };
   }
@@ -248,10 +619,10 @@ export function resolveAdminTargetCredentials(params: {
   });
 
   const configuredModel = mergedAgent.model || providerOverride?.model || foundProv?.model || '';
-  const endpoint =
-    providerOverride?.endpoint ||
-    foundProv?.endpoint ||
-    getDefaultEndpointForProviderType(pType);
+  const endpoint = normalizeEndpointForProviderType(
+    pType,
+    providerOverride?.endpoint || foundProv?.endpoint
+  );
 
   const explicitCustom = (customKey || '').trim();
   const dedicatedAgentKey = !mergedAgent.useProviderKey ? (mergedAgent.apiKey || '').trim() : '';
@@ -352,7 +723,7 @@ export function resolveProjectGateCredentials(params: {
       throw err;
     }
 
-    const pType = inferProviderType({ provider: conn.provider, endpoint: conn.endpoint });
+    const pType = inferProviderType({ provider: conn.provider, model: conn.model, endpoint: conn.endpoint });
     return {
       providerId: conn.id,
       providerType: pType,
@@ -360,7 +731,7 @@ export function resolveProjectGateCredentials(params: {
       configuredModel: conn.model,
       apiKey: conn.apiKey.trim(),
       keySource: 'Customer BYOK Vault',
-      endpoint: conn.endpoint || getDefaultEndpointForProviderType(pType),
+      endpoint: normalizeEndpointForProviderType(pType, conn.endpoint),
       systemPrompt: agent?.systemPrompt,
       temperature: agent?.temperature,
       maxTokens: agent?.maxTokens,

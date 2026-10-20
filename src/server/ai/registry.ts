@@ -4,8 +4,20 @@ import { OpenAIAdapter } from './adapters/openai.ts';
 import { AnthropicAdapter } from './adapters/anthropic.ts';
 import { GroqAdapter } from './adapters/groq.ts';
 import { OpenRouterAdapter } from './adapters/openrouter.ts';
+import { CohereAdapter } from './adapters/cohere.ts';
 import { OpenAICompatibleAdapter } from './adapters/openaiCompatible.ts';
-import { StitchAdapter } from './adapters/stitch.ts';
+import { StitchAdapter, CloudUnsupportedAdapter } from './adapters/stitch.ts';
+import {
+  PROVIDER_ENDPOINT_REGISTRY,
+  getDefaultEndpointForProviderType,
+  validateAndNormalizeEndpointForProvider,
+} from './credentialResolver.ts';
+
+export {
+  PROVIDER_ENDPOINT_REGISTRY,
+  getDefaultEndpointForProviderType,
+  validateAndNormalizeEndpointForProvider,
+};
 
 const adapters = new Map<ProviderType, ProviderAdapter>([
   ['gemini', new GeminiAdapter()],
@@ -13,15 +25,15 @@ const adapters = new Map<ProviderType, ProviderAdapter>([
   ['anthropic', new AnthropicAdapter()],
   ['groq', new GroqAdapter()],
   ['openrouter', new OpenRouterAdapter()],
+  ['cohere', new CohereAdapter()],
   ['stitch', new StitchAdapter()],
+  ['cloud', new CloudUnsupportedAdapter()],
   ['deepseek', new OpenAICompatibleAdapter('deepseek')],
   ['mistral', new OpenAICompatibleAdapter('mistral')],
   ['xai', new OpenAICompatibleAdapter('xai')],
   ['v0', new OpenAICompatibleAdapter('v0')],
   ['perplexity', new OpenAICompatibleAdapter('perplexity')],
   ['together', new OpenAICompatibleAdapter('together')],
-  ['cohere', new OpenAICompatibleAdapter('cohere')],
-  ['cloud', new OpenAICompatibleAdapter('cloud')],
   ['custom', new OpenAICompatibleAdapter('custom')],
 ]);
 
@@ -32,3 +44,4 @@ export function getProviderAdapter(providerType: ProviderType): ProviderAdapter 
   }
   return new OpenAICompatibleAdapter(providerType);
 }
+

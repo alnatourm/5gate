@@ -399,8 +399,79 @@ const DEFAULT_PROVIDERS: FactoryProvider[] = [
   },
 ];
 
+const DEFAULT_ENDPOINT_BY_TYPE: Record<AIProviderEngineType, string> = {
+  stitch: 'https://stitch.withgoogle.com/api/v1/generate',
+  gemini: 'https://generativelanguage.googleapis.com/v1beta',
+  openai: 'https://api.openai.com/v1/chat/completions',
+  anthropic: 'https://api.anthropic.com/v1/messages',
+  groq: 'https://api.groq.com/openai/v1/chat/completions',
+  deepseek: 'https://api.deepseek.com/v1/chat/completions',
+  mistral: 'https://api.mistral.ai/v1/chat/completions',
+  xai: 'https://api.x.ai/v1/chat/completions',
+  openrouter: 'https://openrouter.ai/api/v1/chat/completions',
+  v0: 'https://api.v0.dev/v1/chat/completions',
+  perplexity: 'https://api.perplexity.ai/chat/completions',
+  together: 'https://api.together.xyz/v1/chat/completions',
+  cohere: 'https://api.cohere.com/v2/chat',
+  cloud: 'https://bedrock-runtime.us-east-1.amazonaws.com',
+  custom: 'https://api.custom-ai-provider.com/v1/chat/completions',
+};
+
+const ENV_KEY_NAME_BY_TYPE: Record<AIProviderEngineType, string> = {
+  stitch: 'STITCH_API_KEY',
+  gemini: 'GEMINI_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  anthropic: 'ANTHROPIC_API_KEY',
+  groq: 'GROQ_API_KEY',
+  deepseek: 'DEEPSEEK_API_KEY',
+  mistral: 'MISTRAL_API_KEY',
+  xai: 'XAI_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
+  v0: 'V0_API_KEY',
+  perplexity: 'PERPLEXITY_API_KEY',
+  together: 'TOGETHER_API_KEY',
+  cohere: 'COHERE_API_KEY',
+  cloud: 'CUSTOM_AI_API_KEY',
+  custom: 'CUSTOM_AI_API_KEY',
+};
+
 const inferProviderTypeClient = (prov: Partial<FactoryProvider>): AIProviderEngineType => {
-  if (prov.providerType) return prov.providerType;
+  const idAndName = `${prov.id || ''} ${prov.name || ''}`.toLowerCase();
+  const modelLower = (prov.model || '').toLowerCase().trim();
+  const keyTrimmed = (prov.apiKey || '').trim();
+
+  if (idAndName.includes('groq') || keyTrimmed.startsWith('gsk_')) return 'groq';
+  if (idAndName.includes('stitch')) return 'stitch';
+  if (idAndName.includes('openrouter') || keyTrimmed.startsWith('sk-or-')) return 'openrouter';
+  if (idAndName.includes('anthropic') || idAndName.includes('claude') || keyTrimmed.startsWith('sk-ant-')) return 'anthropic';
+  if (idAndName.includes('deepseek')) return 'deepseek';
+  if (idAndName.includes('mistral') || idAndName.includes('codestral')) return 'mistral';
+  if (idAndName.includes('xai') || idAndName.includes('grok')) return 'xai';
+  if (idAndName.includes('v0')) return 'v0';
+  if (idAndName.includes('perplexity') || idAndName.includes('sonar')) return 'perplexity';
+  if (idAndName.includes('together')) return 'together';
+  if (idAndName.includes('cohere')) return 'cohere';
+  if (idAndName.includes('openai')) return 'openai';
+  if (idAndName.includes('gemini')) return 'gemini';
+
+  if (prov.providerType && prov.providerType !== 'custom') {
+    if (prov.providerType === 'gemini' || prov.providerType === 'stitch') {
+      if (modelLower.includes('llama-') || modelLower.includes('mixtral-')) return 'groq';
+      if (modelLower.startsWith('gpt-') || modelLower.startsWith('o1') || modelLower.startsWith('o3')) return 'openai';
+      if (modelLower.startsWith('claude-')) return 'anthropic';
+      if (modelLower.startsWith('deepseek-')) return 'deepseek';
+    }
+    return prov.providerType;
+  }
+
+  if (modelLower.includes('llama-') || modelLower.includes('mixtral-')) return 'groq';
+  if (modelLower.startsWith('gpt-') || modelLower.startsWith('o1') || modelLower.startsWith('o3')) return 'openai';
+  if (modelLower.startsWith('claude-')) return 'anthropic';
+  if (modelLower.startsWith('deepseek-')) return 'deepseek';
+  if (modelLower.includes('codestral') || modelLower.startsWith('mistral-')) return 'mistral';
+  if (modelLower.startsWith('grok-')) return 'xai';
+  if (modelLower.startsWith('openrouter/')) return 'openrouter';
+
   const hay = `${prov.id || ''} ${prov.name || ''} ${prov.endpoint || ''}`.toLowerCase();
   if (hay.includes('stitch')) return 'stitch';
   if (hay.includes('groq')) return 'groq';
@@ -415,7 +486,17 @@ const inferProviderTypeClient = (prov: Partial<FactoryProvider>): AIProviderEngi
   if (hay.includes('together')) return 'together';
   if (hay.includes('cohere')) return 'cohere';
   if (hay.includes('gemini') || hay.includes('generativelanguage')) return 'gemini';
-  return 'custom';
+  return prov.providerType || 'custom';
+};
+
+const normalizeProviderEndpointClient = (
+  providerType: AIProviderEngineType,
+  rawEndpoint?: string
+): string => {
+  const defaultEndpoint = DEFAULT_ENDPOINT_BY_TYPE[providerType] || '';
+  const trimmed = (rawEndpoint || '').trim();
+  if (!trimmed) return defaultEndpoint;
+  return trimmed;
 };
 
 const mergeProvidersWithDefaults = (savedList: FactoryProvider[]): FactoryProvider[] => {
@@ -429,18 +510,22 @@ const mergeProvidersWithDefaults = (savedList: FactoryProvider[]): FactoryProvid
       ...def,
       ...saved,
       providerType,
-      endpoint: saved.endpoint || def.endpoint,
+      endpoint: (saved.endpoint && String(saved.endpoint).trim()) || def.endpoint,
       model: saved.model && String(saved.model).trim() ? String(saved.model).trim() : def.model,
       enabled: typeof saved.enabled === 'boolean' ? saved.enabled : def.enabled,
     };
   });
   const customAdded = savedList
     .filter((p) => p && p.id && !DEFAULT_PROVIDERS.some((def) => def.id === p.id))
-    .map((p) => ({
-      ...p,
-      providerType: inferProviderTypeClient(p),
-      enabled: typeof p.enabled === 'boolean' ? p.enabled : true,
-    }));
+    .map((p) => {
+      const providerType = inferProviderTypeClient(p);
+      return {
+        ...p,
+        providerType,
+        endpoint: (p.endpoint && String(p.endpoint).trim()) || DEFAULT_ENDPOINT_BY_TYPE[providerType] || '',
+        enabled: typeof p.enabled === 'boolean' ? p.enabled : true,
+      };
+    });
   return [...mergedDefaults, ...customAdded];
 };
 
@@ -674,25 +759,13 @@ export default function App() {
   const [byokApiKey, setByokApiKey] = useState(() => localStorage.getItem('ogroup_byok_key') || '');
   const [byokModel, setByokModel] = useState('gemini-3.8-flash');
 
-  // Factory Providers & Five Agents State (Connected to Backend)
-  const [factoryProviders, setFactoryProviders] = useState<FactoryProvider[]>(() => {
-    try {
-      const saved = localStorage.getItem('ogroup_factory_providers');
-      return saved ? mergeProvidersWithDefaults(JSON.parse(saved)) : DEFAULT_PROVIDERS;
-    } catch {
-      return DEFAULT_PROVIDERS;
-    }
-  });
-  const [factoryAgents, setFactoryAgents] = useState<FactoryAgent[]>(() => {
-    try {
-      const savedProvsRaw = localStorage.getItem('ogroup_factory_providers');
-      const provs = savedProvsRaw ? mergeProvidersWithDefaults(JSON.parse(savedProvsRaw)) : DEFAULT_PROVIDERS;
-      const saved = localStorage.getItem('ogroup_factory_agents');
-      return saved ? mergeAgentsWithDefaults(JSON.parse(saved), provs) : DEFAULT_AGENTS;
-    } catch {
-      return DEFAULT_AGENTS;
-    }
-  });
+  // Factory Providers & Five Agents State (Authoritative Backend State + Separate UI Draft State)
+  const [savedFactoryProviders, setSavedFactoryProviders] = useState<FactoryProvider[]>(DEFAULT_PROVIDERS);
+  const [savedFactoryAgents, setSavedFactoryAgents] = useState<FactoryAgent[]>(DEFAULT_AGENTS);
+  const [factoryProviders, setFactoryProviders] = useState<FactoryProvider[]>(DEFAULT_PROVIDERS);
+  const [factoryAgents, setFactoryAgents] = useState<FactoryAgent[]>(DEFAULT_AGENTS);
+  const [configSaveError, setConfigSaveError] = useState<string | null>(null);
+  const [isSavingConfig, setIsSavingConfig] = useState<boolean>(false);
   const [hasSystemEnvKey, setHasSystemEnvKey] = useState(true);
   const [testingTargetId, setTestingTargetId] = useState<string | null>(null);
   const [agentTestResults, setAgentTestResults] = useState<Record<string, { ok: boolean; status?: string; reply: string; latencyMs: number; model: string; keySource: string }>>({});
@@ -771,69 +844,90 @@ export default function App() {
     localStorage.setItem('ogroup_stitch_custom_pages', JSON.stringify(stitchCustomPages));
   }, [stitchCustomPages]);
 
-  // Sync providers and agents with backend on mount
+  // Load authoritative providers and agents from backend on mount (never overwrite backend from localStorage, never auto-POST)
   useEffect(() => {
     fetch('/api/admin/config')
-      .then(res => res.json())
-      .then(data => {
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        return res.json();
+      })
+      .then((data) => {
         if (typeof data.hasSystemEnvKey === 'boolean') {
           setHasSystemEnvKey(data.hasSystemEnvKey);
         }
-        const savedProvsRaw = localStorage.getItem('ogroup_factory_providers');
-        const savedAgentsRaw = localStorage.getItem('ogroup_factory_agents');
-        const mergedProvs = savedProvsRaw
-          ? mergeProvidersWithDefaults(JSON.parse(savedProvsRaw))
-          : mergeProvidersWithDefaults(data.providers || DEFAULT_PROVIDERS);
-        const mergedAgents = savedAgentsRaw
-          ? mergeAgentsWithDefaults(JSON.parse(savedAgentsRaw), mergedProvs)
-          : mergeAgentsWithDefaults(data.agents || DEFAULT_AGENTS, mergedProvs);
+        const authoritativeProvs = mergeProvidersWithDefaults(data.providers || DEFAULT_PROVIDERS);
+        const authoritativeAgents = mergeAgentsWithDefaults(data.agents || DEFAULT_AGENTS, authoritativeProvs);
 
-        setFactoryProviders(mergedProvs);
-        setFactoryAgents(mergedAgents);
-        localStorage.setItem('ogroup_factory_providers', JSON.stringify(mergedProvs));
-        localStorage.setItem('ogroup_factory_agents', JSON.stringify(mergedAgents));
+        setSavedFactoryProviders(authoritativeProvs);
+        setSavedFactoryAgents(authoritativeAgents);
+        setFactoryProviders(authoritativeProvs);
+        setFactoryAgents(authoritativeAgents);
+        setConfigSaveError(null);
 
-        fetch('/api/admin/config', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            providers: mergedProvs,
-            agents: mergedAgents,
-          }),
-        }).catch(() => {});
+        // Clean up legacy localStorage keys so stale browser state never overrides backend configuration
+        try {
+          localStorage.removeItem('ogroup_factory_providers');
+          localStorage.removeItem('ogroup_factory_agents');
+        } catch {}
       })
       .catch(() => {});
   }, []);
 
-  const syncSystemConfigToBackend = async (nextProviders: FactoryProvider[], nextAgents: FactoryAgent[], successMessage?: string) => {
-    const normalizedProvs = mergeProvidersWithDefaults(nextProviders);
-    const normalizedAgents = mergeAgentsWithDefaults(nextAgents, normalizedProvs);
-    setFactoryProviders(normalizedProvs);
-    setFactoryAgents(normalizedAgents);
-    localStorage.setItem('ogroup_factory_providers', JSON.stringify(normalizedProvs));
-    localStorage.setItem('ogroup_factory_agents', JSON.stringify(normalizedAgents));
+  const syncSystemConfigToBackend = async (
+    nextProviders: FactoryProvider[],
+    nextAgents: FactoryAgent[],
+    successMessage?: string
+  ): Promise<boolean> => {
+    setConfigSaveError(null);
+    setIsSavingConfig(true);
     try {
-      await fetch('/api/admin/config', {
+      const res = await fetch('/api/admin/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ providers: normalizedProvs, agents: normalizedAgents }),
+        body: JSON.stringify({ providers: nextProviders, agents: nextAgents }),
       });
-      if (successMessage) showToast(successMessage);
-    } catch {
-      if (successMessage) showToast(successMessage);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        const errMsg = data.error || `فشل حفظ الإعدادات في الخادم (HTTP ${res.status})`;
+        setConfigSaveError(errMsg);
+        showToast(`خطأ في الحفظ: ${errMsg}`);
+        return false;
+      }
+
+      const confirmedProviders = mergeProvidersWithDefaults(data.providers || nextProviders);
+      const confirmedAgents = mergeAgentsWithDefaults(data.agents || nextAgents, confirmedProviders);
+
+      setSavedFactoryProviders(confirmedProviders);
+      setSavedFactoryAgents(confirmedAgents);
+      setFactoryProviders(confirmedProviders);
+      setFactoryAgents(confirmedAgents);
+      if (typeof data.hasSystemEnvKey === 'boolean') {
+        setHasSystemEnvKey(data.hasSystemEnvKey);
+      }
+      if (successMessage) {
+        showToast(successMessage);
+      }
+      return true;
+    } catch (err: any) {
+      const errMsg = err?.message || 'تعذر الاتصال بالخادم لحفظ الإعدادات';
+      setConfigSaveError(errMsg);
+      showToast(`خطأ في الشبكة: ${errMsg}`);
+      return false;
+    } finally {
+      setIsSavingConfig(false);
     }
   };
 
   const handleTestAgentOrProvider = async (targetKey: string, gateNum: number, customKey?: string) => {
     setTestingTargetId(targetKey);
     try {
-      const normalizedProvs = mergeProvidersWithDefaults(factoryProviders);
-      const normalizedAgents = mergeAgentsWithDefaults(factoryAgents, normalizedProvs);
       const isProviderTest = targetKey.startsWith('prov-');
-      const targetAgent = normalizedAgents.find(a => a.gate === gateNum) || normalizedAgents[0];
+      const targetAgent = factoryAgents.find(a => a.gate === gateNum) || factoryAgents[0];
       const targetProvider = isProviderTest
-        ? normalizedProvs.find(p => p.id === targetKey)
-        : normalizedProvs.find(p => p.id === targetAgent?.providerId);
+        ? factoryProviders.find(p => p.id === targetKey)
+        : factoryProviders.find(p => p.id === targetAgent?.providerId);
 
       const res = await fetch('/api/admin/test-connection', {
         method: 'POST',
@@ -842,26 +936,26 @@ export default function App() {
           gate: gateNum,
           customKey,
           providerId: isProviderTest ? targetKey : undefined,
-          providers: normalizedProvs,
-          agents: normalizedAgents,
+          providers: factoryProviders,
+          agents: factoryAgents,
           agentConfig: targetAgent,
           providerConfig: targetProvider,
         }),
       });
       const data = await res.json();
-      if (data.status === 'integration_required') {
+      if (data.status === 'integration_required' || data.status === 'unsupported_protocol') {
         setAgentTestResults(prev => ({
           ...prev,
           [targetKey]: {
             ok: false,
-            status: 'integration_required',
+            status: data.status,
             reply: data.error || data.reply || 'يتطلب ربط تكامل خارجي حقيقي (Integration Required)',
             latencyMs: data.latencyMs || 0,
             model: data.model || targetProvider?.model || 'google-stitch-v2-ui',
-            keySource: data.keySource || 'Integration Required',
+            keySource: data.keySource || data.status,
           }
         }));
-        showToast(`تنبيه: ${data.error || 'هذا المحرك يتطلب تكامل API خارجي حقيقي'}`);
+        showToast(`تنبيه: ${data.error || 'هذا المحرك يتطلب تكامل API خارجي متوافق'}`);
         return;
       }
       if (!res.ok || !data.ok) {
@@ -937,19 +1031,26 @@ export default function App() {
   const handleAddNewProvider = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProviderName.trim()) return;
-    const preset = ENGINE_PRESETS[newProviderType] || ENGINE_PRESETS.custom;
+    const resolvedType = inferProviderTypeClient({
+      name: newProviderName.trim(),
+      providerType: newProviderType,
+      model: newProviderModel.trim(),
+      apiKey: newProviderKey.trim(),
+      endpoint: newProviderEndpoint.trim(),
+    });
+    const preset = ENGINE_PRESETS[resolvedType] || ENGINE_PRESETS.custom;
     const assignedGateCode = newProviderAssignGate > 0 ? `GATE 0${newProviderAssignGate}` : 'GATE 01';
     const newProv: FactoryProvider = {
       id: `prov-${Date.now()}`,
       name: newProviderName.trim(),
-      providerType: newProviderType,
+      providerType: resolvedType,
       model: newProviderModel.trim() || preset.model,
       status: 'active',
       enabled: true,
       apiKey: newProviderKey.trim(),
       useSystemEnv: !newProviderKey.trim(),
       endpoint: newProviderEndpoint.trim() || preset.endpoint,
-      latency: newProviderType === 'groq' ? '38ms' : '115ms',
+      latency: resolvedType === 'groq' ? '38ms' : '115ms',
       assignedGates: [assignedGateCode],
       monthlyQuotaJod: 1000,
       usedQuotaJod: 0,
@@ -969,14 +1070,16 @@ export default function App() {
           : a
       );
     }
-    await syncSystemConfigToBackend(
+    const savedOk = await syncSystemConfigToBackend(
       updatedProviders,
       updatedAgents,
       `تم إضافة المزود "${newProv.name}" (${newProv.model}) وربط مفتاحه بالنظام بنجاح`
     );
-    setNewProviderName('');
-    setNewProviderKey('');
-    setIsAddProviderOpen(false);
+    if (savedOk) {
+      setNewProviderName('');
+      setNewProviderKey('');
+      setIsAddProviderOpen(false);
+    }
   };
 
   // Enforce admin isolation
@@ -2370,14 +2473,35 @@ export default function App() {
                           <span>اختبار جميع الوكلاء الخمسة معاً</span>
                         </button>
                         <button
+                          disabled={isSavingConfig}
                           onClick={() => syncSystemConfigToBackend(factoryProviders, factoryAgents, 'تم حفظ وتفعيل ربط الوكلاء الخمسة ومفاتيحهم في النظام بنجاح')}
-                          className="px-5 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold shadow-md transition flex items-center gap-2 whitespace-nowrap"
+                          className="px-5 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white text-xs font-bold shadow-md transition flex items-center gap-2 whitespace-nowrap"
                         >
                           <CheckCircle className="w-4 h-4" />
-                          <span>حفظ وتفعيل الإعدادات في النظام</span>
+                          <span>{isSavingConfig ? 'جاري الحفظ...' : 'حفظ وتفعيل الإعدادات في النظام'}</span>
                         </button>
                       </div>
                     </div>
+
+                    {configSaveError && (
+                      <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-red-800">
+                        <div className="space-y-1">
+                          <div className="font-bold">تعذر حفظ الإعدادات في الخادم (تم الاحتفاظ بالتعديلات غير المحفوظة):</div>
+                          <p>{configSaveError}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFactoryProviders(savedFactoryProviders);
+                            setFactoryAgents(savedFactoryAgents);
+                            setConfigSaveError(null);
+                          }}
+                          className="px-3.5 py-2 rounded-xl bg-white border border-red-200 text-red-700 font-bold hover:bg-red-100 shrink-0"
+                        >
+                          استعادة آخر إعدادات محفوظة من الخادم
+                        </button>
+                      </div>
+                    )}
 
                     {/* Add New Provider / Custom AI Engine Modal (accessible directly on Agents screen) */}
                     {isAddProviderOpen && (
@@ -2590,11 +2714,7 @@ export default function App() {
                                     const updated = factoryAgents.map(a =>
                                       a.gate === agent.gate ? { ...a, enabled: !a.enabled } : a
                                     );
-                                    syncSystemConfigToBackend(
-                                      factoryProviders,
-                                      updated,
-                                      !agent.enabled ? `تم تفعيل ${agent.title} في النظام` : `تم إيقاف ${agent.title} مؤقتاً`
-                                    );
+                                    setFactoryAgents(updated);
                                   }}
                                   className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition whitespace-nowrap ${
                                     agent.enabled
@@ -2613,6 +2733,21 @@ export default function App() {
                                 >
                                   <Play className="w-3.5 h-3.5 text-orange-400" />
                                   <span>{isTesting ? 'جاري فحص الوكيل...' : 'اختبار الوكيل والمفتاح حياً'}</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  disabled={isSavingConfig}
+                                  onClick={() =>
+                                    syncSystemConfigToBackend(
+                                      factoryProviders,
+                                      factoryAgents,
+                                      `تم حفظ إعدادات ${agent.gateCode} (${agent.providerName} • ${agent.model}) بنجاح`
+                                    )
+                                  }
+                                  className="px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white text-xs font-bold transition whitespace-nowrap"
+                                >
+                                  حفظ إعدادات الوكيل
                                 </button>
                               </div>
                             </div>
@@ -2644,7 +2779,7 @@ export default function App() {
                                         ? { ...a, providerId: selProv.id, providerName: selProv.name, model: selProv.model }
                                         : a
                                     );
-                                    syncSystemConfigToBackend(factoryProviders, updated, `تم ربط ${agent.gateCode} بالمزود ${selProv.name}`);
+                                    setFactoryAgents(updated);
                                   }}
                                   className="w-full h-10 px-3 rounded-xl bg-slate-50 border border-slate-200 font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500"
                                 >
@@ -2677,7 +2812,7 @@ export default function App() {
                                       const updated = factoryAgents.map(a =>
                                         a.gate === agent.gate ? { ...a, model: e.target.value } : a
                                       );
-                                      syncSystemConfigToBackend(factoryProviders, updated);
+                                      setFactoryAgents(updated);
                                     }}
                                     placeholder="اكتب اسم أي نموذج (مثال: google-stitch-v2-ui)"
                                     dir="ltr"
@@ -2694,7 +2829,7 @@ export default function App() {
                                       const updated = factoryAgents.map(a =>
                                         a.gate === agent.gate ? { ...a, model: e.target.value } : a
                                       );
-                                      syncSystemConfigToBackend(factoryProviders, updated);
+                                      setFactoryAgents(updated);
                                     }}
                                     className="w-full h-10 px-3 rounded-xl bg-slate-50 border border-slate-200 font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500"
                                     dir="ltr"
@@ -2757,7 +2892,7 @@ export default function App() {
                                     const updated = factoryAgents.map(a =>
                                       a.gate === agent.gate ? { ...a, useProviderKey: useProv } : a
                                     );
-                                    syncSystemConfigToBackend(factoryProviders, updated);
+                                    setFactoryAgents(updated);
                                   }}
                                   className="w-full h-10 px-3 rounded-xl bg-slate-50 border border-slate-200 font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500"
                                 >
@@ -2786,12 +2921,12 @@ export default function App() {
                                         const updatedProvs = factoryProviders.map(p =>
                                           p.id === linkedProv.id ? { ...p, apiKey: val, useSystemEnv: !val.trim() } : p
                                         );
-                                        syncSystemConfigToBackend(updatedProvs, factoryAgents);
+                                        setFactoryProviders(updatedProvs);
                                       } else {
                                         const updatedAgents = factoryAgents.map(a =>
                                           a.gate === agent.gate ? { ...a, apiKey: val } : a
                                         );
-                                        syncSystemConfigToBackend(factoryProviders, updatedAgents);
+                                        setFactoryAgents(updatedAgents);
                                       }
                                     }}
                                     placeholder={`أدخل مفتاح ${agent.providerName} هنا (أو اتركه للخزنة)`}
@@ -2823,7 +2958,7 @@ export default function App() {
                                     const updated = factoryAgents.map(a =>
                                       a.gate === agent.gate ? { ...a, systemPrompt: e.target.value } : a
                                     );
-                                    syncSystemConfigToBackend(factoryProviders, updated);
+                                    setFactoryAgents(updated);
                                   }}
                                   className="w-full p-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 leading-relaxed focus:outline-none focus:ring-2 focus:ring-orange-500"
                                 />
@@ -2845,7 +2980,7 @@ export default function App() {
                                       const updated = factoryAgents.map(a =>
                                         a.gate === agent.gate ? { ...a, temperature: parseFloat(e.target.value) } : a
                                       );
-                                      syncSystemConfigToBackend(factoryProviders, updated);
+                                      setFactoryAgents(updated);
                                     }}
                                     className="w-full accent-orange-600 cursor-pointer"
                                   />
@@ -2920,6 +3055,26 @@ export default function App() {
                         </button>
                       </div>
                     </div>
+
+                    {configSaveError && (
+                      <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-red-800">
+                        <div className="space-y-1">
+                          <div className="font-bold">تعذر حفظ إعدادات المزود في الخادم (تم الاحتفاظ بالتعديلات غير المحفوظة):</div>
+                          <p>{configSaveError}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFactoryProviders(savedFactoryProviders);
+                            setFactoryAgents(savedFactoryAgents);
+                            setConfigSaveError(null);
+                          }}
+                          className="px-3.5 py-2 rounded-xl bg-white border border-red-200 text-red-700 font-bold hover:bg-red-100 shrink-0"
+                        >
+                          استعادة آخر إعدادات محفوظة من الخادم
+                        </button>
+                      </div>
+                    )}
 
                     {/* 4 KPI Cards */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -3013,8 +3168,20 @@ export default function App() {
                               type="text"
                               required
                               value={newProviderName}
-                              onChange={e => setNewProviderName(e.target.value)}
-                              placeholder="مثال: Google Stitch Design Pro أو اسم مزودك"
+                              onChange={e => {
+                                const val = e.target.value;
+                                setNewProviderName(val);
+                                const detected = inferProviderTypeClient({ name: val, providerType: 'custom' });
+                                if (detected !== 'custom' && detected !== newProviderType) {
+                                  const preset = ENGINE_PRESETS[detected];
+                                  if (preset) {
+                                    setNewProviderType(detected);
+                                    setNewProviderModel(preset.model);
+                                    setNewProviderEndpoint(preset.endpoint);
+                                  }
+                                }
+                              }}
+                              placeholder="مثال: Groq أو OpenAI أو اسم مزودك"
                               className="w-full h-10 px-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-800"
                             />
                           </div>
@@ -3023,7 +3190,18 @@ export default function App() {
                             <input
                               type="text"
                               value={newProviderModel}
-                              onChange={e => setNewProviderModel(e.target.value)}
+                              onChange={e => {
+                                const val = e.target.value;
+                                setNewProviderModel(val);
+                                const detected = inferProviderTypeClient({ model: val, providerType: 'custom' });
+                                if (detected !== 'custom' && detected !== newProviderType) {
+                                  const preset = ENGINE_PRESETS[detected];
+                                  if (preset) {
+                                    setNewProviderType(detected);
+                                    setNewProviderEndpoint(preset.endpoint);
+                                  }
+                                }
+                              }}
                               dir="ltr"
                               className="w-full h-10 px-3 rounded-xl bg-slate-50 border border-slate-200 font-mono text-slate-800"
                             />
@@ -3033,7 +3211,18 @@ export default function App() {
                             <input
                               type="text"
                               value={newProviderKey}
-                              onChange={e => setNewProviderKey(e.target.value)}
+                              onChange={e => {
+                                const val = e.target.value;
+                                setNewProviderKey(val);
+                                const detected = inferProviderTypeClient({ apiKey: val, providerType: 'custom' });
+                                if (detected !== 'custom' && detected !== newProviderType) {
+                                  const preset = ENGINE_PRESETS[detected];
+                                  if (preset) {
+                                    setNewProviderType(detected);
+                                    setNewProviderEndpoint(preset.endpoint);
+                                  }
+                                }
+                              }}
                               placeholder="AIzaSy... أو sk-... أو gsk_..."
                               dir="ltr"
                               className="w-full h-10 px-3 rounded-xl bg-white border border-orange-300 font-mono text-slate-800"
@@ -3090,6 +3279,9 @@ export default function App() {
                         const isTesting = testingTargetId === prov.id;
                         const testRes = agentTestResults[prov.id];
                         const linkedAgents = factoryAgents.filter(a => a.providerId === prov.id);
+                        const inferredType = inferProviderTypeClient(prov);
+                        const defaultEndpointForProv = DEFAULT_ENDPOINT_BY_TYPE[inferredType] || prov.endpoint;
+                        const envVarName = ENV_KEY_NAME_BY_TYPE[inferredType] || 'CUSTOM_AI_API_KEY';
 
                         return (
                           <div key={prov.id} className={`bg-white rounded-2xl p-6 shadow-sm border space-y-4 transition ${prov.enabled ? 'border-slate-200' : 'border-slate-200 opacity-75 bg-slate-50'}`}>
@@ -3158,6 +3350,39 @@ export default function App() {
                               </div>
                             </div>
 
+                            {/* Editable API Endpoint URL Box */}
+                            <div className="text-xs">
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="font-bold text-slate-700">عنوان API المحفوظ حالياً (API Endpoint URL)</label>
+                                {defaultEndpointForProv && prov.endpoint !== defaultEndpointForProv && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const updated = factoryProviders.map(p =>
+                                        p.id === prov.id ? { ...p, endpoint: defaultEndpointForProv, providerType: inferredType } : p
+                                      );
+                                      setFactoryProviders(updated);
+                                    }}
+                                    className="text-[11px] font-bold text-orange-600 hover:underline"
+                                  >
+                                    استعادة العنوان الصحيح ({inferredType})
+                                  </button>
+                                )}
+                              </div>
+                              <input
+                                type="text"
+                                value={prov.endpoint}
+                                onChange={(e) => {
+                                  const updated = factoryProviders.map(p =>
+                                    p.id === prov.id ? { ...p, endpoint: e.target.value } : p
+                                  );
+                                  setFactoryProviders(updated);
+                                }}
+                                dir="ltr"
+                                className="w-full h-9 px-3 rounded-xl bg-slate-50 border border-slate-200 font-mono text-[11px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                              />
+                            </div>
+
                             {/* Custom Key Input Box */}
                             <div className="text-xs">
                               <label className="block font-bold text-slate-700 mb-1">
@@ -3165,7 +3390,7 @@ export default function App() {
                               </label>
                               {prov.useSystemEnv ? (
                                 <div className="h-10 px-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-slate-600">
-                                  <span className="font-mono text-[11px]" dir="ltr">GEMINI_API_KEY •••••••••••••••••••••••• (Active Vault)</span>
+                                  <span className="font-mono text-[11px]" dir="ltr">{envVarName} •••••••••••••••••••••••• (Active Vault)</span>
                                   <button
                                     type="button"
                                     onClick={() => {

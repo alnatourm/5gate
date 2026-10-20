@@ -7,6 +7,7 @@ import {
   classifyHttpError,
   redactSecrets,
 } from '../types.ts';
+import { validateAndNormalizeEndpointForProvider } from '../credentialResolver.ts';
 
 export class AnthropicAdapter implements ProviderAdapter {
   public readonly providerType = 'anthropic' as const;
@@ -19,7 +20,6 @@ export class AnthropicAdapter implements ProviderAdapter {
     const fetchFn = options.fetchImpl || globalThis.fetch;
     const model = (request.configuredModel || '').trim();
     const apiKey = (request.apiKey || '').trim();
-    const endpoint = (request.endpoint || 'https://api.anthropic.com/v1/messages').trim();
 
     if (!model) {
       return {
@@ -40,6 +40,28 @@ export class AnthropicAdapter implements ProviderAdapter {
         statusCode: 400,
       };
     }
+
+    const endpointCheck = validateAndNormalizeEndpointForProvider('anthropic', request.endpoint);
+    if (!endpointCheck.valid) {
+      return {
+        ok: false,
+        provider: 'anthropic',
+        providerType: 'anthropic',
+        providerName: request.providerName || 'Anthropic Claude',
+        configuredModel: model,
+        executedModel: null,
+        agentGate: request.agentGate,
+        latencyMs: Date.now() - startTime,
+        verified: false,
+        status: 'endpoint_unavailable',
+        response: '',
+        usage: null,
+        keySource: request.keySource,
+        error: endpointCheck.error || 'عنوان الاتصال غير متوافق مع مزود Anthropic.',
+        statusCode: 400,
+      };
+    }
+    const endpoint = endpointCheck.endpoint;
 
     if (!apiKey) {
       return {

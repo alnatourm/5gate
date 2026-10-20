@@ -474,8 +474,34 @@ export class FactoryStorage {
     }
   }
 
-  public saveAdminConfig(providers: unknown[], agents: unknown[]) {
+  public saveAdminConfig(providers: any[], agents: any[]) {
     const now = new Date().toISOString();
+    const encryptedProviders = (Array.isArray(providers) ? providers : []).map((p) => {
+      if (!p || typeof p !== 'object') return p;
+      const rawKey = typeof p.apiKey === 'string' ? p.apiKey.trim() : '';
+      return {
+        ...p,
+        apiKey: '',
+        encryptedApiKey: rawKey
+          ? encryptCredential(rawKey, this.encryptionSecret)
+          : typeof p.encryptedApiKey === 'string'
+          ? p.encryptedApiKey
+          : '',
+      };
+    });
+    const encryptedAgents = (Array.isArray(agents) ? agents : []).map((a) => {
+      if (!a || typeof a !== 'object') return a;
+      const rawKey = typeof a.apiKey === 'string' ? a.apiKey.trim() : '';
+      return {
+        ...a,
+        apiKey: '',
+        encryptedApiKey: rawKey
+          ? encryptCredential(rawKey, this.encryptionSecret)
+          : typeof a.encryptedApiKey === 'string'
+          ? a.encryptedApiKey
+          : '',
+      };
+    });
     this.db
       .prepare(
         `INSERT INTO admin_settings (id, providers_json, agents_json, updated_at)
@@ -485,7 +511,7 @@ export class FactoryStorage {
            agents_json = excluded.agents_json,
            updated_at = excluded.updated_at`
       )
-      .run(JSON.stringify(providers), JSON.stringify(agents), now);
+      .run(JSON.stringify(encryptedProviders), JSON.stringify(encryptedAgents), now);
   }
 
   public loadAdminConfig(): { providers: any[]; agents: any[] } | null {
@@ -494,10 +520,45 @@ export class FactoryStorage {
       .get() as Record<string, unknown> | undefined;
     if (!row) return null;
     try {
-      return {
-        providers: JSON.parse(String(row.providers_json || '[]')),
-        agents: JSON.parse(String(row.agents_json || '[]')),
-      };
+      const rawProviders = JSON.parse(String(row.providers_json || '[]'));
+      const rawAgents = JSON.parse(String(row.agents_json || '[]'));
+      const providers = (Array.isArray(rawProviders) ? rawProviders : []).map((p) => {
+        if (!p || typeof p !== 'object') return p;
+        let decryptedKey = '';
+        if (typeof p.encryptedApiKey === 'string' && p.encryptedApiKey.trim()) {
+          try {
+            decryptedKey = decryptCredential(p.encryptedApiKey, this.encryptionSecret);
+          } catch {
+            decryptedKey = '';
+          }
+        } else if (typeof p.apiKey === 'string' && p.apiKey.trim()) {
+          decryptedKey = p.apiKey.trim();
+        }
+        const { encryptedApiKey, ...rest } = p;
+        return {
+          ...rest,
+          apiKey: decryptedKey,
+        };
+      });
+      const agents = (Array.isArray(rawAgents) ? rawAgents : []).map((a) => {
+        if (!a || typeof a !== 'object') return a;
+        let decryptedKey = '';
+        if (typeof a.encryptedApiKey === 'string' && a.encryptedApiKey.trim()) {
+          try {
+            decryptedKey = decryptCredential(a.encryptedApiKey, this.encryptionSecret);
+          } catch {
+            decryptedKey = '';
+          }
+        } else if (typeof a.apiKey === 'string' && a.apiKey.trim()) {
+          decryptedKey = a.apiKey.trim();
+        }
+        const { encryptedApiKey, ...rest } = a;
+        return {
+          ...rest,
+          apiKey: decryptedKey,
+        };
+      });
+      return { providers, agents };
     } catch {
       return null;
     }

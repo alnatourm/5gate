@@ -8,7 +8,7 @@ import {
   classifyHttpError,
   redactSecrets,
 } from '../types.ts';
-import { getDefaultEndpointForProviderType } from '../credentialResolver.ts';
+import { validateAndNormalizeEndpointForProvider } from '../credentialResolver.ts';
 
 export class OpenAICompatibleAdapter implements ProviderAdapter {
   public readonly providerType: ProviderType;
@@ -26,9 +26,6 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     const providerLabel = request.providerType || this.providerType;
     const model = (request.configuredModel || '').trim();
     const apiKey = (request.apiKey || '').trim();
-    const endpoint = (
-      request.endpoint || getDefaultEndpointForProviderType(providerLabel)
-    ).trim();
 
     if (!model) {
       return {
@@ -50,7 +47,8 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       };
     }
 
-    if (!endpoint || (!endpoint.startsWith('http://') && !endpoint.startsWith('https://'))) {
+    const endpointCheck = validateAndNormalizeEndpointForProvider(providerLabel, request.endpoint);
+    if (!endpointCheck.valid || !endpointCheck.endpoint) {
       return {
         ok: false,
         provider: providerLabel,
@@ -65,10 +63,13 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
         response: '',
         usage: null,
         keySource: request.keySource,
-        error: `عنوان الاتصال (Endpoint) غير صالح أو غير محدد للمزود (${providerLabel}).`,
+        error:
+          endpointCheck.error ||
+          `عنوان الاتصال (Endpoint) غير صالح أو غير محدد للمزود (${providerLabel}).`,
         statusCode: 400,
       };
     }
+    const endpoint = endpointCheck.endpoint;
 
     if (!apiKey) {
       return {

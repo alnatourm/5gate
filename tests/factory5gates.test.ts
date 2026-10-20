@@ -365,6 +365,65 @@ export function getPatients(): PatientRecord[] { return [{ id: '1', name: 'أح�
     expect(lastRequestedModel).toBe('gpt-4o-2024-11-20');
   });
 
+  it('3b. POST /api/admin/config rejects a Groq provider with a mismatched Gemini endpoint (HTTP 400) and normalizes a valid Groq base URL to /openai/v1/chat/completions', async () => {
+    // 1. Cross-provider mismatch (Groq with Gemini endpoint) must be rejected with HTTP 400
+    const badCfgRes = await request(appInstance)
+      .post('/api/admin/config')
+      .send({
+        providers: [
+          {
+            id: 'prov-custom-groq',
+            name: 'groq',
+            providerType: 'groq',
+            model: 'llama-3.3-70b-versatile',
+            endpoint: 'https://generativelanguage.googleapis.com/v1beta',
+            apiKey: 'gsk_valid_groq_key_123456',
+            useSystemEnv: false,
+            enabled: true,
+          },
+        ],
+      });
+    expect(badCfgRes.status).toBe(400);
+    expect(badCfgRes.body.ok).toBe(false);
+
+    // 2. Valid Groq base URL normalizes to https://api.groq.com/openai/v1/chat/completions
+    const cfgRes = await request(appInstance)
+      .post('/api/admin/config')
+      .send({
+        providers: [
+          {
+            id: 'prov-custom-groq',
+            name: 'groq',
+            providerType: 'groq',
+            model: 'llama-3.3-70b-versatile',
+            endpoint: 'https://api.groq.com',
+            apiKey: 'gsk_valid_groq_key_123456',
+            useSystemEnv: false,
+            enabled: true,
+          },
+        ],
+      });
+    expect(cfgRes.status).toBe(200);
+    const savedGroq = cfgRes.body.providers.find((p: any) => p.id === 'prov-custom-groq');
+    expect(savedGroq).toBeDefined();
+    expect(savedGroq.providerType).toBe('groq');
+    expect(savedGroq.endpoint).toBe('https://api.groq.com/openai/v1/chat/completions');
+
+    const testRes = await request(appInstance)
+      .post('/api/admin/test-connection')
+      .send({
+        providerId: 'prov-custom-groq',
+        providerConfig: savedGroq,
+        customKey: 'gsk_valid_groq_key_123456',
+      });
+    expect(testRes.status).toBe(200);
+    expect(testRes.body.ok).toBe(true);
+    expect(testRes.body.providerType).toBe('groq');
+    expect(lastRequestedUrl).toBe('https://api.groq.com/openai/v1/chat/completions');
+    expect(lastRequestedHeaders.Authorization).toBe('Bearer gsk_valid_groq_key_123456');
+    expect(lastRequestedModel).toBe('llama-3.3-70b-versatile');
+  });
+
   it('4. Gate 2 cannot run before Gate 1 approval, and Gate 1 works end-to-end', async () => {
     // Create project
     const createRes = await request(appInstance)

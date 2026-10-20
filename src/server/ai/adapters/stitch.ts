@@ -44,3 +44,35 @@ export class StitchAdapter implements ProviderAdapter {
     };
   }
 }
+
+export class CloudUnsupportedAdapter implements ProviderAdapter {
+  public readonly providerType = 'cloud' as const;
+
+  public async execute(
+    request: AIAdapterRequest,
+    _options: { fetchImpl?: ProviderHttpClient } = {}
+  ): Promise<AIAdapterResponse> {
+    const startTime = Date.now();
+    const configuredModel = (request.configuredModel || 'cloud-model').trim();
+
+    return {
+      ok: false,
+      provider: 'cloud',
+      providerType: 'cloud',
+      providerName: request.providerName || 'Enterprise Cloud (AWS Bedrock / Vertex / Azure)',
+      configuredModel,
+      executedModel: null,
+      agentGate: request.agentGate,
+      latencyMs: Date.now() - startTime,
+      verified: false,
+      status: 'unsupported_protocol',
+      response: '',
+      usage: null,
+      keySource: request.keySource || 'Unavailable',
+      error:
+        'تكامل السحابة المؤسسية المباشر (AWS Bedrock SigV4 / IAM) يتطلب بروتوكول مصادقة سحابي خاص غير مدعوم عبر مفتاح Bearer تقليدي (unsupported_protocol). استخدم بوابة متوافقة أو مزود مباشر.',
+      statusCode: 501,
+    };
+  }
+}
+

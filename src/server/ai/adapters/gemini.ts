@@ -8,6 +8,7 @@ import {
   classifyHttpError,
   redactSecrets,
 } from '../types.ts';
+import { validateAndNormalizeEndpointForProvider } from '../credentialResolver.ts';
 
 export class GeminiAdapter implements ProviderAdapter {
   public readonly providerType = 'gemini' as const;
@@ -56,6 +57,27 @@ export class GeminiAdapter implements ProviderAdapter {
         usage: null,
         keySource: request.keySource,
         error: `النموذج "${model}" غير متوافق مع مزود Google Gemini.`,
+        statusCode: 400,
+      };
+    }
+
+    const endpointCheck = validateAndNormalizeEndpointForProvider('gemini', request.endpoint);
+    if (!endpointCheck.valid) {
+      return {
+        ok: false,
+        provider: 'gemini',
+        providerType: 'gemini',
+        providerName: request.providerName || 'Google Gemini',
+        configuredModel: model,
+        executedModel: null,
+        agentGate: request.agentGate,
+        latencyMs: Date.now() - startTime,
+        verified: false,
+        status: 'endpoint_unavailable',
+        response: '',
+        usage: null,
+        keySource: request.keySource,
+        error: endpointCheck.error || 'عنوان الاتصال غير متوافق مع مزود Google Gemini.',
         statusCode: 400,
       };
     }

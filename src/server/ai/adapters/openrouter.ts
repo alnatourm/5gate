@@ -7,6 +7,7 @@ import {
   classifyHttpError,
   redactSecrets,
 } from '../types.ts';
+import { validateAndNormalizeEndpointForProvider } from '../credentialResolver.ts';
 
 export class OpenRouterAdapter implements ProviderAdapter {
   public readonly providerType = 'openrouter' as const;
@@ -19,7 +20,6 @@ export class OpenRouterAdapter implements ProviderAdapter {
     const fetchFn = options.fetchImpl || globalThis.fetch;
     const model = (request.configuredModel || '').trim();
     const apiKey = (request.apiKey || '').trim();
-    const endpoint = (request.endpoint || 'https://openrouter.ai/api/v1/chat/completions').trim();
 
     if (!model) {
       return {
@@ -40,6 +40,28 @@ export class OpenRouterAdapter implements ProviderAdapter {
         statusCode: 400,
       };
     }
+
+    const endpointCheck = validateAndNormalizeEndpointForProvider('openrouter', request.endpoint);
+    if (!endpointCheck.valid) {
+      return {
+        ok: false,
+        provider: 'openrouter',
+        providerType: 'openrouter',
+        providerName: request.providerName || 'OpenRouter',
+        configuredModel: model,
+        executedModel: null,
+        agentGate: request.agentGate,
+        latencyMs: Date.now() - startTime,
+        verified: false,
+        status: 'endpoint_unavailable',
+        response: '',
+        usage: null,
+        keySource: request.keySource,
+        error: endpointCheck.error || 'عنوان الاتصال غير متوافق مع مزود OpenRouter.',
+        statusCode: 400,
+      };
+    }
+    const endpoint = endpointCheck.endpoint;
 
     if (!apiKey) {
       return {

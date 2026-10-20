@@ -22,8 +22,10 @@ import {
 } from './src/server/ai/types.ts';
 import {
   inferProviderType,
+  normalizeEndpointForProviderType,
   resolveAdminTargetCredentials,
   resolveProjectGateCredentials,
+  validateAndNormalizeEndpointForProvider,
 } from './src/server/ai/credentialResolver.ts';
 import { executeProviderRequest, executeResolvedTarget } from './src/server/ai/router.ts';
 import { executeDesignAgent } from './src/server/designAgent.ts';
@@ -268,7 +270,11 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
   },
 ];
 
-function normalizeProviders(list: any[], previousProviders: ProviderConfig[] = DEFAULT_PROVIDERS): ProviderConfig[] {
+function normalizeProviders(
+  list: any[],
+  previousProviders: ProviderConfig[] = DEFAULT_PROVIDERS,
+  options: { allowRepairOnBoot?: boolean } = {}
+): ProviderConfig[] {
   if (!Array.isArray(list) || list.length === 0) return previousProviders;
   const savedMap = new Map(list.filter(Boolean).map((p) => [p.id, p]));
   const prevMap = new Map(previousProviders.map((p) => [p.id, p]));
@@ -286,13 +292,29 @@ function normalizeProviders(list: any[], previousProviders: ProviderConfig[] = D
         ? incomingKey
         : prev.apiKey || def.apiKey;
 
+    const rawEndpoint =
+      saved.endpoint !== undefined ? String(saved.endpoint).trim() : prev.endpoint || def.endpoint;
+    const endpointCheck = validateAndNormalizeEndpointForProvider(
+      providerType,
+      rawEndpoint,
+      options
+    );
+    if (!endpointCheck.valid) {
+      const err: any = new Error(
+        endpointCheck.error || `عنوان الاتصال غير صالح للمزود (${def.name}).`
+      );
+      err.statusCode = 400;
+      err.errorType = 'validation_error';
+      throw err;
+    }
+
     return {
       ...def,
       ...prev,
       ...saved,
       providerType,
       apiKey: resolvedKey,
-      endpoint: saved.endpoint !== undefined ? saved.endpoint : prev.endpoint || def.endpoint,
+      endpoint: endpointCheck.endpoint,
       model: saved.model && String(saved.model).trim() ? String(saved.model).trim() : prev.model || def.model,
       enabled: typeof saved.enabled === 'boolean' ? saved.enabled : prev.enabled,
     };
@@ -303,12 +325,29 @@ function normalizeProviders(list: any[], previousProviders: ProviderConfig[] = D
     .map((p) => {
       const prev = prevMap.get(p.id);
       const incomingKey = typeof p.apiKey === 'string' ? p.apiKey.trim() : '';
+      const inferredType = inferProviderType({ ...prev, ...p });
+      const rawEndpoint =
+        p.endpoint !== undefined ? String(p.endpoint).trim() : prev?.endpoint || '';
+      const endpointCheck = validateAndNormalizeEndpointForProvider(
+        inferredType,
+        rawEndpoint,
+        options
+      );
+      if (!endpointCheck.valid) {
+        const err: any = new Error(
+          endpointCheck.error || `عنوان الاتصال غير صالح للمزود (${p.name || p.id}).`
+        );
+        err.statusCode = 400;
+        err.errorType = 'validation_error';
+        throw err;
+      }
+
       return {
         ...prev,
         ...p,
-        providerType: inferProviderType({ ...prev, ...p }),
+        providerType: inferredType,
         model: p.model && String(p.model).trim() ? String(p.model).trim() : prev?.model || 'custom-model',
-        endpoint: p.endpoint !== undefined ? p.endpoint : prev?.endpoint || '',
+        endpoint: endpointCheck.endpoint,
         apiKey: p.clearApiKey === true ? '' : incomingKey || prev?.apiKey || '',
         enabled: typeof p.enabled === 'boolean' ? p.enabled : prev?.enabled ?? true,
         useSystemEnv: typeof p.useSystemEnv === 'boolean' ? p.useSystemEnv : prev?.useSystemEnv ?? false,
@@ -372,7 +411,7 @@ const CONFIG_FILE_PATH = path.join(process.cwd(), '.ai-factory-config.json');
 function loadPersistedConfig(storage: FactoryStorage): { providers: ProviderConfig[]; agents: AgentConfig[] } {
   const fromDb = storage.loadAdminConfig();
   if (fromDb && (fromDb.providers.length > 0 || fromDb.agents.length > 0)) {
-    const providers = normalizeProviders(fromDb.providers);
+    const providers = normalizeProviders(fromDb.providers, DEFAULT_PROVIDERS, { allowRepairOnBoot: true });
     const agents = normalizeAgents(fromDb.agents, providers);
     return { providers, agents };
   }
@@ -383,7 +422,7 @@ function loadPersistedConfig(storage: FactoryStorage): { providers: ProviderConf
         (Array.isArray(raw.providers) && raw.providers.length > 0) ||
         (Array.isArray(raw.agents) && raw.agents.length > 0)
       ) {
-        const providers = normalizeProviders(raw.providers);
+        const providers = normalizeProviders(raw.providers, DEFAULT_PROVIDERS, { allowRepairOnBoot: true });
         const agents = normalizeAgents(raw.agents, providers);
         storage.saveAdminConfig(providers, agents);
         return { providers, agents };
@@ -557,12 +596,24 @@ export function createApp(options: CreateAppOptions = {}) {
       if (!provider || !model) {
         return res.status(400).json({ error: 'يجب تحديد المزود (provider) والنموذج (model).' });
       }
+      const pType = inferProviderType({ provider: String(provider), model: String(model) });
+      const endpointCheck = validateAndNormalizeEndpointForProvider(
+        pType,
+        typeof endpoint === 'string' ? endpoint : ''
+      );
+      if (!endpointCheck.valid) {
+        return res.status(400).json({
+          ok: false,
+          errorType: 'validation_error',
+          error: endpointCheck.error || 'عنوان الاتصال غير متوافق مع المزود المحدد.',
+        });
+      }
       const saved = storage.saveAIConnection({
         userId: req.user!.id,
         provider: String(provider),
         model: String(model),
         apiKey: typeof apiKey === 'string' ? apiKey : '',
-        endpoint: typeof endpoint === 'string' ? endpoint : '',
+        endpoint: endpointCheck.endpoint,
         active: typeof active === 'boolean' ? active : true,
         assignedGate: typeof assignedGate === 'number' ? assignedGate : null,
       });
@@ -1964,29 +2015,42 @@ export function createApp(options: CreateAppOptions = {}) {
   });
 
   app.post('/api/admin/config', (req, res) => {
-    const { providers, agents } = req.body || {};
-    if (Array.isArray(providers) && providers.length > 0) {
-      providersConfig = normalizeProviders(providers, providersConfig);
+    try {
+      const { providers, agents } = req.body || {};
+      let nextProviders = providersConfig;
+      if (Array.isArray(providers) && providers.length > 0) {
+        nextProviders = normalizeProviders(providers, providersConfig);
+      }
+      let nextAgents = agentsConfig;
+      if (Array.isArray(agents) && agents.length > 0) {
+        nextAgents = normalizeAgents(agents, nextProviders, agentsConfig);
+      }
+      providersConfig = nextProviders;
+      agentsConfig = nextAgents;
+      savePersistedConfig(storage, providersConfig, agentsConfig, options.isolateConfig);
+      res.json({
+        ok: true,
+        providers: providersConfig.map((p) => ({
+          ...p,
+          hasKey: Boolean(p.apiKey && p.apiKey.trim()),
+          maskedKey: maskApiKey(p.apiKey || ''),
+          apiKey: '',
+        })),
+        agents: agentsConfig.map((a) => ({
+          ...a,
+          hasKey: Boolean(a.apiKey && a.apiKey.trim()),
+          maskedKey: maskApiKey(a.apiKey || ''),
+          apiKey: '',
+        })),
+      });
+    } catch (err: any) {
+      const status = err.statusCode || 400;
+      res.status(status).json({
+        ok: false,
+        errorType: err.errorType || 'validation_error',
+        error: redactSecrets(err.message || 'فشل التحقق من صحة إعدادات المزودات.'),
+      });
     }
-    if (Array.isArray(agents) && agents.length > 0) {
-      agentsConfig = normalizeAgents(agents, providersConfig, agentsConfig);
-    }
-    savePersistedConfig(storage, providersConfig, agentsConfig, options.isolateConfig);
-    res.json({
-      ok: true,
-      providers: providersConfig.map((p) => ({
-        ...p,
-        hasKey: Boolean(p.apiKey && p.apiKey.trim()),
-        maskedKey: maskApiKey(p.apiKey || ''),
-        apiKey: '',
-      })),
-      agents: agentsConfig.map((a) => ({
-        ...a,
-        hasKey: Boolean(a.apiKey && a.apiKey.trim()),
-        maskedKey: maskApiKey(a.apiKey || ''),
-        apiKey: '',
-      })),
-    });
   });
 
   app.post('/api/admin/test-connection', async (req, res) => {
@@ -2058,7 +2122,11 @@ export function createApp(options: CreateAppOptions = {}) {
         ? agentsConfig.find((a) => a.gate === requestedGate)
         : undefined;
 
-      if (!resolved.apiKey && resolved.providerType !== 'stitch') {
+      if (
+        !resolved.apiKey &&
+        resolved.providerType !== 'stitch' &&
+        resolved.providerType !== 'cloud'
+      ) {
         return res.status(400).json({
           ok: false,
           verified: false,
@@ -2100,18 +2168,18 @@ export function createApp(options: CreateAppOptions = {}) {
       );
 
       if (!adapterResult.ok) {
-        const httpStatus =
-          adapterResult.status === 'integration_required' || adapterResult.status === 'unsupported'
-            ? 501
-            : adapterResult.statusCode || 502;
+        const isUnsupportedOrIntegration =
+          adapterResult.status === 'integration_required' ||
+          adapterResult.status === 'unsupported' ||
+          adapterResult.status === 'unsupported_protocol';
+        const httpStatus = isUnsupportedOrIntegration
+          ? 501
+          : adapterResult.statusCode || 502;
 
         return res.status(httpStatus).json({
           ok: false,
           verified: false,
-          status:
-            adapterResult.status === 'integration_required' || adapterResult.status === 'unsupported'
-              ? adapterResult.status
-              : 'failed',
+          status: isUnsupportedOrIntegration ? adapterResult.status : 'failed',
           errorType: adapterResult.status,
           provider: adapterResult.provider,
           providerType: adapterResult.providerType,

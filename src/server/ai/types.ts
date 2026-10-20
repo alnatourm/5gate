@@ -23,6 +23,7 @@ export type ExecutionStatus =
   | 'endpoint_unavailable'
   | 'integration_required'
   | 'unsupported'
+  | 'unsupported_protocol'
   | 'rate_limit'
   | 'timeout';
 
