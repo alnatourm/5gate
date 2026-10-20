@@ -1,0 +1,1112 @@
+# OGROUP AI FACTORY: MASTER EXECUTION ORDER
+## Complete All Five Gates, Fix Provider Routing, and Deliver a Real End-to-End Software Factory
+
+**PRIORITY: CRITICAL**
+
+You are the senior principal software engineer responsible for completing the EXISTING OGroup AI Factory application.
+
+This is an implementation order, not a brainstorming request, design exercise, architecture proposal, or permission to rebuild the application.
+
+**You must modify and extend the existing code directly, implement all missing functionality, run the tests, fix failures, and provide a truthful final completion report.**
+
+## 0. NON-NEGOTIABLE OPERATING RULES
+
+1. **DO NOT rebuild the application from scratch.**
+2. **DO NOT replace or redesign the existing Google Stitch user interface.**
+3. **DO NOT remove existing screens, components, workflows, features, or styling.**
+4. Preserve the existing Arabic RTL interface, white/cream backgrounds, orange `#FF6B00` theme, rounded cards, and responsive layout.
+5. Preserve the visual layout: **AI chat on the LEFT and the live artifact/workspace on the RIGHT**.
+6. Preserve the existing admin panel and extend its functionality.
+7. Preserve the existing working Gate 1 implementation and its approved artifact contract.
+8. Do not replace functional code with mock data, placeholders, static text, simulated success, or hardcoded responses.
+9. **DO NOT push to GitHub, commit code, create pull requests, deploy, or request GitHub credentials.** The Product Owner manually uploads/pushes the finished code to GitHub.
+10. Do not stop after implementing only one gate. Complete the entire scope in this instruction.
+11. Do not ask the Product Owner to choose implementation details that you can determine from the existing architecture.
+12. Do not claim any feature works unless its real execution path has been implemented and tested.
+13. Never claim that an AI provider connection succeeded unless that exact provider and model responded successfully.
+14. Do not expose provider credentials to browser bundles, logs, downloadable artifacts, or other users.
+15. Do not change pricing or the approved product modes.
+
+**Definition of completion:** A test user can create a project, complete Gate 1, generate and approve a design in Gate 2, generate working application code in Gate 3, run real QA in Gate 4, and download an actual executable project ZIP in Gate 5.
+
+Anything less is incomplete.
+
+---
+
+# 1. EXISTING APPLICATION: PRESERVE AND EXTEND
+
+The current codebase contains:
+
+- React 19
+- Vite 8
+- TypeScript
+- Express backend
+- SQLite persistence using `node:sqlite`
+- `src/App.tsx`
+- `server.ts`
+- `src/server/storage.ts`
+- `src/server/requirementsAgent.ts`
+- `src/shared/requirementsSchema.ts`
+- `tests/gate1.test.ts`
+- Existing GitHub Actions CI workflow
+- Existing customer dashboard
+- Existing administration screens
+- Existing five-gate workspace
+- Existing BYOK connection management
+- Existing Gate 1 requirements agent, document editing, approval, and persistence
+
+Before modifying the code:
+
+1. Read all existing source files.
+2. Identify the existing types, state, storage methods, endpoints, and components.
+3. Reuse existing implementation whenever possible.
+4. Introduce new modules where necessary instead of making `src/App.tsx` unnecessarily larger.
+5. Maintain compatibility with existing Gate 1 records and approved requirements.
+6. Do not silently overwrite customer documents, provider settings, or previously generated artifacts.
+
+The application is currently in **DEVELOPMENT AND TESTING**, not commercial production.
+
+Focus on making the factory function end-to-end. Keep security fundamentals intact, but do not derail implementation into unrelated production infrastructure work.
+
+---
+
+# 2. CRITICAL FIX: REAL AI PROVIDER ROUTING
+
+## The existing defect
+
+The backend currently implements `/api/admin/test-connection` using `GoogleGenAI` with a fixed Gemini model.
+
+This is incorrect.
+
+The application supports multiple providers and agents. A test for OpenAI, Anthropic, Groq, OpenRouter, Google Stitch, or a custom provider must not silently execute a Gemini request.
+
+**Fix this defect completely, including the underlying execution architecture.**
+
+## 2.1 Create a real provider adapter layer
+
+Introduce a modular backend architecture such as:
+
+```text
+src/server/ai/
+  types.ts
+  registry.ts
+  router.ts
+  credentialResolver.ts
+  adapters/
+    gemini.ts
+    openai.ts
+    anthropic.ts
+    groq.ts
+    openrouter.ts
+    openaiCompatible.ts
+    stitch.ts
+```
+
+You may adjust file names to fit the existing architecture, but the functionality must be equivalent.
+
+Define a common interface supporting:
+
+- Provider ID and provider type
+- Exact selected model
+- Credentials
+- Optional custom endpoint
+- System prompt
+- User prompt
+- Structured input and output
+- Generation parameters
+- Timeout
+- Abort/cancellation
+- Response content
+- Usage information when provided
+- Provider-reported model when available
+- Error details
+- Execution status
+
+Different provider APIs must be handled correctly.
+
+Do not assume all providers use the Gemini API format.
+
+## 2.2 Provider-specific execution
+
+Implement real integrations using the appropriate provider protocol:
+
+**Google Gemini**
+- Use the Gemini API.
+- Use the configured Gemini model, not a hardcoded model.
+
+**OpenAI**
+- Use the supported OpenAI API.
+- Respect the configured model.
+- Correctly parse responses and errors.
+
+**Anthropic**
+- Use Anthropic's supported Messages API.
+- Correctly handle authentication, messages, and response structure.
+
+**Groq**
+- Use Groq's supported OpenAI-compatible API endpoint.
+- Respect its configured model.
+
+**OpenRouter**
+- Use OpenRouter's API endpoint.
+- Respect its model naming conventions.
+
+**Custom OpenAI-compatible providers**
+- Use the configured endpoint and model.
+- Validate endpoint configuration.
+- Do not assume a custom provider is Gemini.
+
+**Google Stitch**
+- Implement a dedicated design-provider integration.
+- Do not pretend Stitch is a generic Gemini text model.
+- Use only a genuinely supported, authorized Stitch API or integration method.
+- Verify the actual integration contract before implementing.
+- If direct Stitch automation is unavailable in this environment, expose an explicit `integration_required` or `unsupported` status and implement a working alternative design-generation provider for Gate 2.
+- Never invent a Stitch endpoint or report a fake successful Stitch connection.
+
+## 2.3 Fix `/api/admin/test-connection`
+
+The endpoint must:
+
+1. Identify the exact selected provider or agent.
+2. Resolve the correct credentials.
+3. Resolve the correct configured model.
+4. Invoke the correct provider adapter.
+5. Make a real request.
+6. Measure actual latency.
+7. Return the real response.
+8. Return the provider and model actually used.
+9. Distinguish authentication errors, invalid models, unavailable endpoints, unsupported integrations, rate limits, and timeouts.
+10. Never silently fall back to Gemini.
+11. Never report success because a different provider responded.
+12. Never expose the API key in the response or logs.
+
+A successful response should follow a contract similar to:
+
+```json
+{
+  "ok": true,
+  "provider": "openai",
+  "configuredModel": "configured-model-name",
+  "executedModel": "actual-model-name",
+  "agentGate": 3,
+  "latencyMs": 1234,
+  "verified": true,
+  "response": "Actual provider response"
+}
+```
+
+This JSON is a contract example, not a hardcoded test result.
+
+For an unavailable integration, return an explicit non-success result.
+
+## 2.4 Fix the admin panel provider controls
+
+Ensure the existing admin interface can:
+
+- Add a provider
+- Edit a provider
+- Configure a model
+- Configure a custom endpoint when supported
+- Assign a provider to an agent
+- Configure a dedicated agent key or use the provider key
+- Save settings
+- Reload settings after a page refresh
+- Test the exact provider
+- Test the exact agent
+- Test all five agents independently
+- Display real success or failure per agent
+
+**Never mark all five agents green simply because Gemini works.**
+
+## 2.5 Provider settings must actually control execution
+
+The selected provider and model in the admin panel must be used by the corresponding gate.
+
+The admin panel cannot be merely decorative.
+
+Changes must affect subsequent agent executions without requiring manual code edits.
+
+---
+
+# 3. TWO CUSTOMER MODES: KEEP THEM DISTINCT
+
+Preserve the approved business model.
+
+## BUILD FOR ME
+
+- Price: **100 JOD per project**.
+- Uses OGroup-managed AI providers and credentials.
+- Each gate uses the OGroup-configured agent/provider/model.
+- The customer must never receive the OGroup API key.
+
+## BUILD WITH MY AI (BYOK)
+
+- Price: **50 JOD per month** at the account level.
+- Supports multiple projects under the subscription.
+- Uses the customer's own configured AI credentials.
+- Allows provider/model selection for each gate.
+- Uses the selected customer credentials for execution.
+- **Never falls back to OGroup-managed credentials when a BYOK key is missing, invalid, or unsupported.**
+
+For both modes:
+
+- Preserve the same five-gate workflow.
+- Preserve the same artifact approval model.
+- Keep provider selection separate from the actual project output.
+- Store credentials server-side.
+- Keep customer credentials out of downloadable project files.
+- Return truthful provider execution status.
+
+During development, payment entitlements may be exercised using explicitly labeled test fixtures or administrator-controlled test configuration. Do not present simulated payments as real successful transactions.
+
+---
+
+# 4. FIVE-GATE WORKFLOW ENGINE
+
+Implement one coherent workflow engine for the entire application.
+
+Each project must progress through:
+
+```text
+GATE 1: REQUIREMENTS
+        |
+        | Approve immutable PRD
+        v
+GATE 2: DESIGN
+        |
+        | Approve design artifact
+        v
+GATE 3: DEVELOPMENT
+        |
+        | Approve generated code
+        v
+GATE 4: QUALITY ASSURANCE
+        |
+        | Approve verified QA result
+        v
+GATE 5: DELIVERY
+        |
+        v
+DOWNLOADABLE WORKING SOFTWARE
+```
+
+## 4.1 General gate requirements
+
+Every gate must support:
+
+- The project ID
+- The project owner
+- Gate number
+- Agent configuration
+- AI provider and model
+- Input artifact from the previous approved gate
+- Chat history
+- User instructions
+- Generation run ID
+- Execution status
+- Generated artifact
+- Artifact version
+- Save and reload
+- Manual edits where appropriate
+- Regeneration
+- Approval
+- Immutable approval snapshot
+- Errors
+- Retry
+- Progress indicators
+- Execution logs
+- Timestamps
+
+Persist these records in SQLite.
+
+Do not rely on React state or `localStorage` as the authoritative record for project completion.
+
+## 4.2 Gate transitions
+
+The backend must enforce gate transitions.
+
+A user must not be able to advance simply by modifying a frontend variable.
+
+Only approved artifacts may become inputs to the next gate.
+
+Approval must be idempotent and version-aware.
+
+Previous approved artifacts must remain retrievable.
+
+---
+
+# 5. GATE 1: PRESERVE THE EXISTING WORKING IMPLEMENTATION
+
+Gate 1 is already implemented.
+
+**Do not rebuild it.**
+
+Preserve:
+
+- AI requirements conversation
+- Structured requirements document
+- Twelve-section requirements schema
+- Live document updates
+- Manual editing
+- Markdown editing
+- Version checking
+- SQLite persistence
+- Approval validation
+- Immutable approval artifact
+- Gate 2 handoff
+- Existing automated tests
+
+Only make compatibility changes required by the new shared workflow engine.
+
+The approved Gate 1 PRD must be the authoritative input to Gate 2.
+
+---
+
+# 6. GATE 2: REAL AI DESIGN GENERATION
+
+Gate 2 must become a functioning design-generation workspace.
+
+## 6.1 Input
+
+Load the approved Gate 1 requirements artifact.
+
+Include:
+
+- Project overview
+- Functional requirements
+- User roles
+- User journeys
+- Screens
+- Forms
+- Data requirements
+- Business rules
+- Non-functional requirements
+- Preferred platform
+- Relevant UI preferences
+
+Do not ask the customer to re-enter approved requirements.
+
+## 6.2 Agent execution
+
+When the user requests a design:
+
+1. Load the approved PRD.
+2. Resolve the selected Gate 2 provider and model.
+3. Execute the real design agent.
+4. Generate a structured design specification.
+5. Generate real screen definitions and UI source files.
+6. Persist the result.
+7. Render the resulting design in the existing workspace.
+
+The output must be specific to the customer's project.
+
+Do not always display the same real estate or booking demo.
+
+## 6.3 Design artifacts
+
+Produce, as applicable:
+
+- Design specification
+- Screen inventory
+- Navigation map
+- Component inventory
+- User flows
+- Layout structure
+- Responsive behavior
+- Form definitions
+- Visual design tokens
+- UI component source
+- Screen source files
+- Preview metadata
+
+A generated design must be represented by a structured, versioned artifact.
+
+## 6.4 Real preview
+
+The user must be able to inspect the generated screens.
+
+Implement a real preview for supported generated UI files.
+
+Do not render arbitrary generated JavaScript directly in the privileged main application context.
+
+Use an isolated, controlled preview mechanism with clear execution limits.
+
+If a preview cannot run, show the actual error and preserve the generated files for inspection.
+
+## 6.5 Editing and approval
+
+Support:
+
+- Follow-up design instructions through chat
+- Screen revisions
+- Regeneration
+- Saved versions
+- Manual adjustments where supported
+- Final approval
+
+After approval, Gate 3 must receive the approved design specification and generated UI files.
+
+---
+
+# 7. GATE 3: REAL SOFTWARE DEVELOPMENT ENGINE
+
+Gate 3 must generate real application code.
+
+A code viewer alone is not sufficient.
+
+## 7.1 Inputs
+
+Load:
+
+- Approved Gate 1 requirements
+- Approved Gate 2 design
+- User-selected technology stack
+- Existing generated code from previous iterations
+- Relevant user instructions
+
+## 7.2 Code generation
+
+Implement a real development agent that:
+
+1. Produces a project architecture.
+2. Generates a structured file manifest.
+3. Generates actual source files.
+4. Generates configuration files.
+5. Generates dependencies.
+6. Generates an application entry point.
+7. Generates backend files when required.
+8. Generates frontend files when required.
+9. Generates database schema and migrations when required.
+10. Generates README and setup instructions.
+11. Persists all generated files.
+
+The agent must not respond with a single decorative code snippet and claim the application is complete.
+
+## 7.3 Generated project contract
+
+Each generated file must have:
+
+- Relative path
+- File content
+- File type
+- Generation version
+- Optional validation metadata
+
+Reject unsafe paths such as absolute paths and directory traversal.
+
+Use a deterministic file manifest that can be reconstructed into a project directory.
+
+## 7.4 Iterative coding
+
+Support user requests such as:
+
+- Add a login screen.
+- Add a database.
+- Change the customer dashboard.
+- Add a new API endpoint.
+- Fix the broken form.
+- Change the design.
+- Add Arabic language support.
+
+The agent must understand the existing generated files and modify the appropriate files without replacing the entire project unnecessarily.
+
+## 7.5 Real code preview
+
+Provide:
+
+- File explorer
+- Syntax-highlighted code
+- File content inspection
+- Build status
+- Runnable preview where technically supported
+- Clear errors when a preview cannot run
+
+Do not use hardcoded sample source files as the result of a new AI execution.
+
+## 7.6 Approval
+
+Gate 3 approval must save an immutable snapshot of the generated project.
+
+Gate 4 must receive this exact code snapshot.
+
+---
+
+# 8. GATE 4: REAL QA AND VERIFICATION
+
+Gate 4 must test the actual generated software.
+
+The current interface displays sample results. Replace these with real execution data.
+
+## 8.1 Required checks
+
+Implement real verification appropriate to the generated project:
+
+- File manifest validation
+- Dependency validation
+- TypeScript checking when applicable
+- Build execution
+- Unit tests when available
+- Integration tests when available
+- API tests when applicable
+- Basic application smoke tests
+- Static code checks
+- Basic security-oriented checks
+- Artifact completeness checks
+
+Do not report a check as passed if it was never executed.
+
+## 8.2 Isolated execution
+
+Generated code is untrusted.
+
+Do not execute arbitrary generated application code directly inside the main Express server process.
+
+Use an isolated test runner or controlled sandbox with:
+
+- Resource limits
+- Timeouts
+- Restricted filesystem access
+- Restricted network access by default
+- No access to platform or customer API keys
+- No access to the factory database
+- Captured stdout and stderr
+- Cleanup after execution
+
+If the environment cannot provide safe code execution, return an explicit `runner_unavailable` status rather than simulating tests.
+
+## 8.3 QA results
+
+Return actual structured results:
+
+```json
+{
+  "status": "passed",
+  "executedChecks": 8,
+  "passedChecks": 8,
+  "failedChecks": 0,
+  "skippedChecks": 0,
+  "buildSucceeded": true,
+  "logs": [],
+  "artifacts": []
+}
+```
+
+These are example field names, not predetermined values.
+
+The real values must come from actual executed checks.
+
+## 8.4 Repair loop
+
+If QA fails:
+
+1. Capture the exact error.
+2. Identify the responsible generated files.
+3. Send the error and relevant code context to the configured development agent.
+4. Generate a targeted fix.
+5. Save a new code version.
+6. Rerun the affected checks.
+7. Repeat within a configurable attempt limit.
+8. Stop and report unresolved failures truthfully.
+
+Do not silently mark failures as successful.
+
+## 8.5 Gate 4 approval
+
+Approve only a QA result tied to a specific generated code version.
+
+If the code changes afterward, the previous QA approval must not automatically apply to the new code.
+
+---
+
+# 9. GATE 5: REAL SOFTWARE DELIVERY
+
+Gate 5 must deliver a real software project.
+
+The current implementation downloads JSON while the button claims ZIP/Bundle.
+
+**Fix this completely.**
+
+## 9.1 Required output
+
+Generate an actual ZIP archive containing the approved project files.
+
+Include, when applicable:
+
+```text
+project-name/
+  README.md
+  package.json
+  src/
+  server/
+  public/
+  database/
+  tests/
+  .env.example
+  Dockerfile
+  docker-compose.yml
+  DEPLOYMENT.md
+  QA-REPORT.md
+  PROJECT-MANIFEST.json
+```
+
+Include only files relevant to the generated project.
+
+Do not invent unnecessary files.
+
+## 9.2 Delivery contents
+
+The package must include:
+
+- Actual generated source code
+- Approved design assets and UI files
+- Dependency manifest
+- Setup instructions
+- Build instructions
+- Environment variable template
+- Database setup instructions where needed
+- Deployment instructions
+- Real QA report
+- Project metadata
+- Version information
+
+Never include actual AI API keys, database passwords, or session secrets.
+
+## 9.3 Download API
+
+Create a real backend ZIP generation and download endpoint.
+
+Requirements:
+
+- Verify project ownership.
+- Use the approved code version.
+- Include the actual persisted generated files.
+- Create a valid ZIP archive.
+- Return the correct MIME type.
+- Return a meaningful filename.
+- Reject invalid paths.
+- Prevent access to other customers' projects.
+
+The browser must download a `.zip` file, not a renamed JSON file.
+
+## 9.4 Verification
+
+Automated tests must extract the ZIP and verify:
+
+- The archive is valid.
+- Expected files exist.
+- File contents match the approved snapshot.
+- No API secrets are present.
+- The README exists.
+- The manifest is valid.
+
+When the project stack is supported by the test environment, additionally verify that the extracted project can install and build.
+
+---
+
+# 10. PERSISTENCE AND DATA MODEL
+
+Extend the existing SQLite database without destroying existing records.
+
+Introduce the necessary structures for:
+
+- Gate execution runs
+- Gate artifacts
+- Artifact versions
+- Gate approvals
+- AI provider execution metadata
+- Generated project files
+- Design files
+- QA reports
+- Delivery packages
+- Execution errors
+- Run timestamps
+
+Implement migrations for existing databases.
+
+Do not drop tables to simplify development.
+
+Maintain tenant/project ownership boundaries.
+
+A page refresh must not erase generated artifacts or approvals.
+
+---
+
+# 11. FRONTEND INTEGRATION
+
+Preserve the existing Stitch-designed UI.
+
+Wire the existing controls to real backend behavior.
+
+For every gate:
+
+- Send chat messages to the correct gate agent.
+- Show actual AI execution status.
+- Render the latest saved artifact.
+- Support refresh and recovery.
+- Display real errors.
+- Save changes.
+- Approve the current version.
+- Advance only after backend approval.
+
+The frontend must never create fake completion merely by incrementing `currentGate`.
+
+## Specific corrections
+
+**Gate 2**
+- Replace project-independent demo design output with project-specific generated artifacts.
+- Preserve existing UI presentation and layout.
+
+**Gate 3**
+- Replace static code samples with persisted AI-generated source files.
+
+**Gate 4**
+- Replace default passed-test counts with actual test results.
+
+**Gate 5**
+- Replace JSON bundle download with real ZIP download.
+
+**Admin**
+- Replace simulated provider success with real adapter results.
+- Preserve provider and agent settings after refresh.
+
+---
+
+# 12. API DESIGN
+
+Implement the necessary real endpoints using the existing Express architecture.
+
+Suggested contracts:
+
+```text
+POST /api/projects/:id/gates/:gate/run
+GET  /api/projects/:id/gates/:gate
+GET  /api/projects/:id/gates/:gate/runs/:runId
+PUT  /api/projects/:id/gates/:gate/artifact
+POST /api/projects/:id/gates/:gate/approve
+
+GET  /api/projects/:id/files
+GET  /api/projects/:id/qa-report
+GET  /api/projects/:id/delivery/download
+
+GET  /api/admin/config
+POST /api/admin/config
+POST /api/admin/test-connection
+```
+
+Reuse existing endpoints and conventions where possible.
+
+Do not create conflicting duplicate routes.
+
+Gate 1's existing endpoints and behavior must remain compatible.
+
+Long-running generation and QA tasks should have persistent run IDs and queryable status rather than depending exclusively on a long-lived browser request.
+
+---
+
+# 13. AUTOMATED TESTING: MANDATORY
+
+Expand the test suite substantially.
+
+Use deterministic mock provider adapters for automated CI tests, while keeping real provider verification separate.
+
+A mock test proves routing logic, not live connectivity.
+
+## Required tests
+
+### Provider routing
+
+- Gemini invokes Gemini adapter.
+- OpenAI invokes OpenAI adapter.
+- Anthropic invokes Anthropic adapter.
+- Groq invokes Groq adapter.
+- OpenRouter invokes OpenRouter adapter.
+- Custom provider invokes the configured compatible endpoint.
+- Stitch is never silently treated as Gemini.
+- Exact model selection is respected.
+- Invalid credentials return failure.
+- Invalid model returns failure.
+- Timeout returns failure.
+- Missing BYOK credentials never fall back to OGroup credentials.
+- Admin test results reflect the provider actually called.
+
+### Gate 1 regression
+
+All existing Gate 1 tests must continue to pass.
+
+### Gate 2
+
+- Approved PRD is loaded.
+- Real adapter is invoked.
+- Design artifact is persisted.
+- Design version is saved.
+- Approval creates an immutable snapshot.
+
+### Gate 3
+
+- Approved design is loaded.
+- Source files are generated.
+- File paths are validated.
+- Files persist after restart.
+- Code approval is version-specific.
+
+### Gate 4
+
+- Actual checks are executed through the isolated runner.
+- Failed checks are recorded.
+- Repair attempts are tracked.
+- Skipped checks are not counted as passed.
+- QA results match the tested code version.
+
+### Gate 5
+
+- Real ZIP is generated.
+- ZIP extracts successfully.
+- Source files match the approved version.
+- No secrets are included.
+- Download requires project ownership.
+
+### Workflow
+
+- A project completes Gates 1 through 5 in order.
+- Skipping required approval is rejected.
+- Restarting the application preserves state.
+- Two projects cannot overwrite each other's artifacts.
+- Failed provider execution does not advance the gate.
+
+---
+
+# 14. REAL END-TO-END ACCEPTANCE TEST
+
+Use this test project:
+
+**Project:** Small Clinic Appointment Management System
+
+**Requirements:**
+- Arabic RTL interface
+- Patient registration
+- Doctor management
+- Appointment booking
+- Appointment status
+- Basic administration dashboard
+- Simple responsive UI
+
+Execute the complete flow:
+
+1. Create a project.
+2. Generate its requirements.
+3. Approve Gate 1.
+4. Generate its design.
+5. Approve Gate 2.
+6. Generate the source code.
+7. Approve Gate 3.
+8. Execute actual QA.
+9. Resolve failures if needed.
+10. Approve Gate 4.
+11. Generate the delivery package.
+12. Download and extract the ZIP.
+13. Verify that the generated application can build and run in the supported test environment.
+
+Use test credentials or deterministic provider fixtures when real credentials are unavailable.
+
+**Do not claim live AI verification if only mocked adapters were used.**
+
+Distinguish clearly between:
+
+- Automated mock tests
+- Real provider integration tests
+- Actual generated application build tests
+- Browser UI verification
+- Tests that could not be executed
+
+---
+
+# 15. CI AND BUILD REQUIREMENTS
+
+Preserve the working GitHub Actions setup.
+
+Keep compatibility with Node.js 22 and the existing package-lock.json.
+
+Run:
+
+```bash
+npm ci
+npm run lint
+npm test
+npm run build
+```
+
+Fix all failures.
+
+Add any necessary dependencies to `package.json` and update `package-lock.json`.
+
+Do not delete tests to achieve a green result.
+
+Do not weaken assertions to hide failures.
+
+Do not hardcode success responses in order to satisfy tests.
+
+Do not alter GitHub repository configuration or perform Git operations.
+
+---
+
+# 16. README AND DOCUMENTATION
+
+Update `README.md` to describe the implementation truthfully.
+
+Include:
+
+- Current architecture
+- Five-gate workflow
+- Provider adapters
+- Managed AI configuration
+- BYOK configuration
+- Database persistence
+- Required environment variables
+- Local setup
+- Test commands
+- Generated code execution requirements
+- ZIP delivery process
+- Supported providers
+- Unsupported integrations and limitations
+- Actual test results
+- Remaining blockers, if any
+
+Never document a planned feature as already completed.
+
+---
+
+# 17. IMPLEMENTATION PRIORITY
+
+Complete work in this order, without stopping between phases:
+
+**Phase A: Provider Engine**
+- Real provider adapter layer
+- Correct model routing
+- Fix admin test-connection
+- Real agent/provider configuration
+
+**Phase B: Shared Gate Engine**
+- Persistent runs
+- Artifacts
+- Versioning
+- Approval
+- Backend gate transitions
+
+**Phase C: Gate 2**
+- Real design generation
+- Design artifacts
+- Preview
+- Approval
+
+**Phase D: Gate 3**
+- Real code generation
+- File persistence
+- Code preview
+- Approval
+
+**Phase E: Gate 4**
+- Isolated QA execution
+- Actual logs
+- Repair loop
+- Approval
+
+**Phase F: Gate 5**
+- Actual ZIP packaging
+- Download endpoint
+- Extraction verification
+
+**Phase G: Integration**
+- Wire the existing UI
+- Remove fake execution behavior
+- End-to-end testing
+- Regression testing
+- Documentation
+
+Do not stop after Phase A.
+
+Do not stop after Gate 2.
+
+Do not stop because the interface looks complete.
+
+Continue until the complete five-gate workflow is implemented or an unavoidable external dependency is reached.
+
+---
+
+# 18. STRICT FINAL REPORT FORMAT
+
+At the end, report:
+
+## A. Files Changed
+List every added and modified file.
+
+## B. Provider Verification Matrix
+For each provider, show:
+
+- Adapter implemented: YES/NO
+- Configured model respected: YES/NO
+- Automated test: PASS/FAIL/NOT RUN
+- Live API test: PASS/FAIL/NOT RUN
+- Reason for any failure
+
+## C. Five-Gate Status
+
+| Gate | Backend | Frontend | Persistence | Approval | Tests |
+|------|---------|----------|-------------|----------|-------|
+| Gate 1 | | | | | |
+| Gate 2 | | | | | |
+| Gate 3 | | | | | |
+| Gate 4 | | | | | |
+| Gate 5 | | | | | |
+
+Use only verified results.
+
+## D. Test Results
+Report actual command outputs and test counts.
+
+## E. End-to-End Test
+State precisely which steps completed and which did not.
+
+## F. Remaining Blockers
+Identify only real remaining dependencies.
+
+## G. Final Status
+Use exactly one:
+
+- **COMPLETE AND VERIFIED**
+- **IMPLEMENTED, EXTERNAL VERIFICATION REQUIRED**
+- **PARTIALLY IMPLEMENTED**
+
+Never claim COMPLETE AND VERIFIED if any required gate still uses simulated output or if the ZIP is not real.
+
+---
+
+# FINAL DIRECTIVE
+
+**BUILD THE EXISTING FACTORY INTO A FUNCTIONING END-TO-END SOFTWARE PRODUCTION SYSTEM.**
+
+Preserve the approved UI.
+
+Preserve working Gate 1 functionality.
+
+Make all five agents real.
+
+Make provider routing real.
+
+Make every gate artifact real.
+
+Make every approval persistent.
+
+Make QA results real.
+
+Make delivery a real ZIP containing real source code.
+
+Do not use fake success messages.
+
+Do not rebuild the project.
+
+Do not perform GitHub operations.
+
+Do not ask for repeated approvals.
+
+**Implement, test, repair, verify, and report. START NOW.**

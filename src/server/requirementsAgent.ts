@@ -1,15 +1,14 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { Type } from '@google/genai';
 import {
   RequirementsDocument,
   mergeRequirementsDocument,
   validateRequirementsDocument,
 } from '../shared/requirementsSchema.ts';
+import { executeProviderRequest } from './ai/router.ts';
+import { inferProviderType } from './ai/credentialResolver.ts';
+import { ProviderHttpClient, TokenUsageMetrics } from './ai/types.ts';
 
-export interface TokenUsageMetrics {
-  promptTokens?: number;
-  completionTokens?: number;
-  totalTokens?: number;
-}
+export type { ProviderHttpClient, TokenUsageMetrics };
 
 export interface RequirementsAgentExecutionInput {
   provider: string;
@@ -19,6 +18,7 @@ export interface RequirementsAgentExecutionInput {
   userMessage: string;
   currentDocument: RequirementsDocument;
   chatHistory: { sender: 'user' | 'ai'; text: string }[];
+  timeoutMs?: number;
 }
 
 export interface RequirementsAgentExecutionResult {
@@ -28,8 +28,6 @@ export interface RequirementsAgentExecutionResult {
   modelUsed: string;
   usage: TokenUsageMetrics | null;
 }
-
-export type ProviderHttpClient = typeof fetch;
 
 const REQUIREMENTS_SYSTEM_INSTRUCTION = `You are the Gate 1 Requirements Agent (وكيل المتطلبات وتحليل الأعمال) at OGroup AI Factory.
 Your mission is to:
@@ -60,13 +58,12 @@ You MUST return ONLY a valid JSON object matching this exact structure:
   }
 }`;
 
-function extractJsonObject(rawText: string): Record<string, unknown> {
+export function extractJsonObject(rawText: string): Record<string, unknown> {
   const trimmed = (rawText || '').trim();
   if (!trimmed) {
     throw new Error('استجابة المزود فارغة ولا تحتوي على بيانات JSON صالحة.');
   }
 
-  // Strip optional markdown code fences if present
   const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const candidate = fencedMatch ? fencedMatch[1].trim() : trimmed;
 
@@ -76,7 +73,6 @@ function extractJsonObject(rawText: string): Record<string, unknown> {
       return parsed as Record<string, unknown>;
     }
   } catch {
-    // Try extracting the first {...} block
     const firstBrace = candidate.indexOf('{');
     const lastBrace = candidate.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace > firstBrace) {
@@ -112,36 +108,10 @@ function buildUserPrompt(input: RequirementsAgentExecutionInput): string {
   ].join('\n');
 }
 
-function defaultEndpointForProvider(provider: string): string {
-  switch (provider.toLowerCase()) {
-    case 'openai':
-      return 'https://api.openai.com/v1/chat/completions';
-    case 'groq':
-      return 'https://api.groq.com/openai/v1/chat/completions';
-    case 'deepseek':
-      return 'https://api.deepseek.com/v1/chat/completions';
-    case 'mistral':
-      return 'https://api.mistral.ai/v1/chat/completions';
-    case 'xai':
-      return 'https://api.x.ai/v1/chat/completions';
-    case 'openrouter':
-      return 'https://openrouter.ai/api/v1/chat/completions';
-    case 'perplexity':
-      return 'https://api.perplexity.ai/chat/completions';
-    case 'together':
-      return 'https://api.together.xyz/v1/chat/completions';
-    case 'anthropic':
-      return 'https://api.anthropic.com/v1/messages';
-    default:
-      return '';
-  }
-}
-
 export async function executeRequirementsAgent(
   input: RequirementsAgentExecutionInput,
   options: { fetchImpl?: ProviderHttpClient } = {}
 ): Promise<RequirementsAgentExecutionResult> {
-  const fetchFn = options.fetchImpl || globalThis.fetch;
   const provider = (input.provider || '').trim().toLowerCase();
   const model = (input.model || '').trim();
   const apiKey = (input.apiKey || '').trim();
@@ -156,225 +126,87 @@ export async function executeRequirementsAgent(
     err.statusCode = 400;
     throw err;
   }
-  if (!apiKey) {
+  if (!apiKey && provider !== 'stitch') {
     const err: any = new Error(`مفتاح API غير متوفر للمزود المحدد (${provider}). يرجى التحقق من إعدادات المفتاح.`);
     err.statusCode = 401;
     throw err;
   }
 
+  const providerType = inferProviderType({ provider, endpoint: input.endpoint });
   const promptText = buildUserPrompt(input);
-  let rawModelOutput = '';
-  let usage: TokenUsageMetrics | null = null;
 
-  if (provider === 'gemini') {
-    // If a custom fetchImpl is provided (e.g. in automated tests) or if calling Gemini REST/SDK
-    if (options.fetchImpl) {
-      const endpoint =
-        input.endpoint ||
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
-      const resp = await fetchFn(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey,
+  const geminiJsonSchema = {
+    type: Type.OBJECT,
+    properties: {
+      reply: { type: Type.STRING },
+      replaceSections: {
+        type: Type.ARRAY,
+        items: { type: Type.STRING },
+      },
+      documentUpdate: {
+        type: Type.OBJECT,
+        properties: {
+          projectName: { type: Type.STRING },
+          overview: { type: Type.STRING },
+          objectives: { type: Type.ARRAY, items: { type: Type.STRING } },
+          userRoles: { type: Type.ARRAY, items: { type: Type.STRING } },
+          features: { type: Type.ARRAY, items: { type: Type.STRING } },
+          userJourneys: { type: Type.ARRAY, items: { type: Type.STRING } },
+          businessRules: { type: Type.ARRAY, items: { type: Type.STRING } },
+          dataRequirements: { type: Type.ARRAY, items: { type: Type.STRING } },
+          integrations: { type: Type.ARRAY, items: { type: Type.STRING } },
+          acceptanceCriteria: { type: Type.ARRAY, items: { type: Type.STRING } },
+          assumptions: { type: Type.ARRAY, items: { type: Type.STRING } },
+          exclusions: { type: Type.ARRAY, items: { type: Type.STRING } },
         },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: REQUIREMENTS_SYSTEM_INSTRUCTION }] },
-          contents: [{ role: 'user', parts: [{ text: promptText }] }],
-          generationConfig: {
-            responseMimeType: 'application/json',
-            temperature: 0.4,
-          },
-        }),
-      });
-
-      if (!resp.ok) {
-        let errDetail = `HTTP ${resp.status}`;
-        try {
-          const errJson: any = await resp.json();
-          errDetail = errJson?.error?.message || errJson?.error || errDetail;
-        } catch {}
-        const err: any = new Error(`فشل طلب المزود (gemini / ${model}): ${errDetail}`);
-        err.statusCode = resp.status === 401 || resp.status === 403 ? 401 : 502;
-        throw err;
-      }
-
-      const data: any = await resp.json();
-      rawModelOutput = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      if (data?.usageMetadata) {
-        usage = {
-          promptTokens: data.usageMetadata.promptTokenCount,
-          completionTokens: data.usageMetadata.candidatesTokenCount,
-          totalTokens: data.usageMetadata.totalTokenCount,
-        };
-      }
-    } else {
-      try {
-        const ai = new GoogleGenAI({
-          apiKey,
-          httpOptions: {
-            headers: {
-              'User-Agent': 'aistudio-build',
-            },
-          },
-        });
-
-        const response = await ai.models.generateContent({
-          model,
-          contents: promptText,
-          config: {
-            systemInstruction: REQUIREMENTS_SYSTEM_INSTRUCTION,
-            temperature: 0.4,
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                reply: { type: Type.STRING },
-                replaceSections: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING },
-                },
-                documentUpdate: {
-                  type: Type.OBJECT,
-                  properties: {
-                    projectName: { type: Type.STRING },
-                    overview: { type: Type.STRING },
-                    objectives: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    userRoles: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    features: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    userJourneys: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    businessRules: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    dataRequirements: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    integrations: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    acceptanceCriteria: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    assumptions: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    exclusions: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  },
-                  required: [
-                    'projectName',
-                    'overview',
-                    'objectives',
-                    'userRoles',
-                    'features',
-                    'userJourneys',
-                    'businessRules',
-                    'dataRequirements',
-                    'integrations',
-                    'acceptanceCriteria',
-                    'assumptions',
-                    'exclusions',
-                  ],
-                },
-              },
-              required: ['reply', 'documentUpdate'],
-            },
-          },
-        });
-
-        rawModelOutput = response.text || '';
-        if (response.usageMetadata) {
-          usage = {
-            promptTokens: response.usageMetadata.promptTokenCount,
-            completionTokens: response.usageMetadata.candidatesTokenCount,
-            totalTokens: response.usageMetadata.totalTokenCount,
-          };
-        }
-      } catch (sdkErr: any) {
-        const msg = sdkErr?.message || 'Gemini provider error';
-        const err: any = new Error(`فشل طلب المزود (gemini / ${model}): ${msg}`);
-        err.statusCode = msg.toLowerCase().includes('api key') || msg.includes('401') || msg.includes('403') ? 401 : 502;
-        throw err;
-      }
-    }
-  } else if (provider === 'anthropic') {
-    const endpoint = input.endpoint || defaultEndpointForProvider('anthropic');
-    const resp = await fetchFn(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 4096,
-        system: REQUIREMENTS_SYSTEM_INSTRUCTION,
-        messages: [{ role: 'user', content: promptText }],
-      }),
-    });
-
-    if (!resp.ok) {
-      let errDetail = `HTTP ${resp.status}`;
-      try {
-        const errJson: any = await resp.json();
-        errDetail = errJson?.error?.message || errJson?.error || errDetail;
-      } catch {}
-      const err: any = new Error(`فشل طلب المزود (anthropic / ${model}): ${errDetail}`);
-      err.statusCode = resp.status === 401 || resp.status === 403 ? 401 : 502;
-      throw err;
-    }
-
-    const data: any = await resp.json();
-    rawModelOutput = data?.content?.[0]?.text || '';
-    if (data?.usage) {
-      const p = typeof data.usage.input_tokens === 'number' ? data.usage.input_tokens : undefined;
-      const c = typeof data.usage.output_tokens === 'number' ? data.usage.output_tokens : undefined;
-      usage = {
-        promptTokens: p,
-        completionTokens: c,
-        totalTokens: typeof p === 'number' && typeof c === 'number' ? p + c : undefined,
-      };
-    }
-  } else {
-    // OpenAI, Groq, DeepSeek, Mistral, xAI, OpenRouter, Together, Perplexity, Custom
-    const endpoint = input.endpoint || defaultEndpointForProvider(provider);
-    if (!endpoint) {
-      const err: any = new Error(`عنوان الاتصال (Endpoint) غير محدد للمزود (${provider}).`);
-      err.statusCode = 400;
-      throw err;
-    }
-
-    const resp = await fetchFn(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: REQUIREMENTS_SYSTEM_INSTRUCTION },
-          { role: 'user', content: promptText },
+        required: [
+          'projectName',
+          'overview',
+          'objectives',
+          'userRoles',
+          'features',
+          'userJourneys',
+          'businessRules',
+          'dataRequirements',
+          'integrations',
+          'acceptanceCriteria',
+          'assumptions',
+          'exclusions',
         ],
-        temperature: 0.4,
-      }),
-    });
+      },
+    },
+    required: ['reply', 'documentUpdate'],
+  };
 
-    if (!resp.ok) {
-      let errDetail = `HTTP ${resp.status}`;
-      try {
-        const errJson: any = await resp.json();
-        errDetail = errJson?.error?.message || errJson?.error || errDetail;
-      } catch {}
-      const err: any = new Error(`فشل طلب المزود (${provider} / ${model}): ${errDetail}`);
-      err.statusCode = resp.status === 401 || resp.status === 403 ? 401 : 502;
-      throw err;
-    }
+  const adapterResult = await executeProviderRequest(
+    {
+      providerId: provider,
+      providerType,
+      configuredModel: model,
+      apiKey,
+      keySource: 'Gate 1 Agent',
+      endpoint: input.endpoint,
+      systemPrompt: REQUIREMENTS_SYSTEM_INSTRUCTION,
+      userPrompt: promptText,
+      responseFormat: 'json',
+      jsonSchema: geminiJsonSchema,
+      temperature: 0.4,
+      timeoutMs: input.timeoutMs,
+      agentGate: 1,
+    },
+    options
+  );
 
-    const data: any = await resp.json();
-    rawModelOutput = data?.choices?.[0]?.message?.content || '';
-    if (data?.usage) {
-      usage = {
-        promptTokens: data.usage.prompt_tokens,
-        completionTokens: data.usage.completion_tokens,
-        totalTokens: data.usage.total_tokens,
-      };
-    }
+  if (!adapterResult.ok) {
+    const err: any = new Error(adapterResult.error || `فشل طلب المزود (${provider} / ${model}).`);
+    err.statusCode = adapterResult.statusCode || 502;
+    err.executionStatus = adapterResult.status;
+    throw err;
   }
 
   let parsedPayload: Record<string, unknown>;
   try {
-    parsedPayload = extractJsonObject(rawModelOutput);
+    parsedPayload = extractJsonObject(adapterResult.response);
   } catch (parseErr: any) {
     const err: any = new Error(parseErr.message || 'فشل تحليل استجابة الوكيل كـ JSON مهيكل.');
     err.statusCode = 422;
@@ -416,7 +248,7 @@ export async function executeRequirementsAgent(
     reply,
     updatedDocument: validation.document,
     providerUsed: provider,
-    modelUsed: model,
-    usage,
+    modelUsed: adapterResult.executedModel || model,
+    usage: adapterResult.usage,
   };
 }

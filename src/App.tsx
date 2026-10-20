@@ -70,6 +70,10 @@ import {
   formatRequirementsToMarkdown,
   parseMarkdownToRequirements,
 } from './shared/requirementsSchema';
+import type { DesignArtifact } from './shared/designSchema';
+import type { CodeArtifact, GeneratedProjectFile } from './shared/codeSchema';
+import type { QAReportArtifact } from './server/qaRunner';
+import type { DeliveryArtifact } from './server/deliveryPackager';
 
 type AppView = 'login' | 'signup' | 'dashboard' | 'create-project' | 'settings' | 'billing' | 'ai-connections' | 'gate-workspace';
 
@@ -106,11 +110,32 @@ interface Project {
   status: 'in_progress' | 'ready_for_approval' | 'approved' | 'completed';
   prd: string;
   designNotes: string;
-  codeFiles: { name: string; content: string }[];
-  testResults: { passed: number; failed: number; logs: string[] };
+  codeFiles: { name: string; path?: string; content: string; fileType?: string; version?: number }[];
+  testResults: {
+    status?: string;
+    passed: number;
+    failed: number;
+    skipped?: number;
+    executed?: number;
+    buildSucceeded?: boolean;
+    testedCodeVersion?: number;
+    logs: string[];
+  };
   gate1Version?: number;
   gate1Approved?: boolean;
   gate1ApprovedAt?: string | null;
+  gate2Version?: number;
+  gate2Approved?: boolean;
+  gate2ApprovedAt?: string | null;
+  gate3Version?: number;
+  gate3Approved?: boolean;
+  gate3ApprovedAt?: string | null;
+  gate4Version?: number;
+  gate4Approved?: boolean;
+  gate4ApprovedAt?: string | null;
+  gate5Version?: number;
+  gate5Approved?: boolean;
+  gate5ApprovedAt?: string | null;
   createdAt: string;
 }
 
@@ -147,6 +172,8 @@ interface FactoryProvider {
   status: 'active' | 'standby' | 'disabled';
   enabled: boolean;
   apiKey: string;
+  hasKey?: boolean;
+  maskedKey?: string;
   useSystemEnv: boolean;
   endpoint: string;
   latency: string;
@@ -165,6 +192,8 @@ interface FactoryAgent {
   providerName: string;
   model: string;
   apiKey: string;
+  hasKey?: boolean;
+  maskedKey?: string;
   useProviderKey: boolean;
   temperature: number;
   maxTokens: number;
@@ -178,15 +207,15 @@ const DEFAULT_PROVIDERS: FactoryProvider[] = [
     name: 'Google Stitch (UI/UX Design AI)',
     providerType: 'stitch',
     model: 'google-stitch-v2-ui',
-    status: 'active',
+    status: 'standby',
     enabled: true,
     apiKey: '',
     useSystemEnv: true,
     endpoint: 'https://stitch.withgoogle.com/api/v1/generate',
-    latency: '110ms',
+    latency: 'N/A',
     assignedGates: ['GATE 02'],
     monthlyQuotaJod: 1500,
-    usedQuotaJod: 320,
+    usedQuotaJod: 0,
   },
   {
     id: 'prov-gemini',
@@ -375,43 +404,18 @@ const inferProviderTypeClient = (prov: Partial<FactoryProvider>): AIProviderEngi
   const hay = `${prov.id || ''} ${prov.name || ''} ${prov.endpoint || ''}`.toLowerCase();
   if (hay.includes('stitch')) return 'stitch';
   if (hay.includes('groq')) return 'groq';
-  if (hay.includes('openai') || hay.includes('gpt')) return 'openai';
+  if (hay.includes('openrouter')) return 'openrouter';
+  if (hay.includes('openai')) return 'openai';
   if (hay.includes('anthropic') || hay.includes('claude')) return 'anthropic';
   if (hay.includes('deepseek')) return 'deepseek';
   if (hay.includes('mistral') || hay.includes('codestral')) return 'mistral';
   if (hay.includes('xai') || hay.includes('grok')) return 'xai';
-  if (hay.includes('openrouter')) return 'openrouter';
   if (hay.includes('v0')) return 'v0';
   if (hay.includes('perplexity') || hay.includes('sonar')) return 'perplexity';
   if (hay.includes('together')) return 'together';
   if (hay.includes('cohere')) return 'cohere';
-  if (hay.includes('gemini') || hay.includes('google')) return 'gemini';
+  if (hay.includes('gemini') || hay.includes('generativelanguage')) return 'gemini';
   return 'custom';
-};
-
-const isModelCompatibleClient = (model: string, providerType: AIProviderEngineType): boolean => {
-  if (!model) return false;
-  const m = model.toLowerCase();
-  switch (providerType) {
-    case 'groq':
-      return m.includes('llama') || m.includes('mixtral') || m.includes('gemma') || m.includes('deepseek-r1-distill') || m.includes('qwen');
-    case 'stitch':
-      return m.includes('stitch') || m.includes('gemini');
-    case 'gemini':
-      return m.includes('gemini') && !m.includes('2.5-flash') && !m.includes('1.5');
-    case 'openai':
-      return m.includes('gpt-') || m.startsWith('o1') || m.startsWith('o3') || m.startsWith('o4');
-    case 'anthropic':
-      return m.includes('claude');
-    case 'deepseek':
-      return m.includes('deepseek');
-    case 'mistral':
-      return m.includes('mistral') || m.includes('codestral') || m.includes('pixtral');
-    case 'xai':
-      return m.includes('grok');
-    default:
-      return true;
-  }
 };
 
 const mergeProvidersWithDefaults = (savedList: FactoryProvider[]): FactoryProvider[] => {
@@ -426,7 +430,7 @@ const mergeProvidersWithDefaults = (savedList: FactoryProvider[]): FactoryProvid
       ...saved,
       providerType,
       endpoint: saved.endpoint || def.endpoint,
-      model: isModelCompatibleClient(saved.model, providerType) ? saved.model : def.model,
+      model: saved.model && String(saved.model).trim() ? String(saved.model).trim() : def.model,
       enabled: typeof saved.enabled === 'boolean' ? saved.enabled : def.enabled,
     };
   });
@@ -447,9 +451,9 @@ const DEFAULT_AGENTS: FactoryAgent[] = [
     title: 'وكيل المتطلبات وتحليل الأعمال (Requirements Agent)',
     roleEn: 'Lead Product Manager & PRD Architect',
     desc: 'تحليل أفكار وتطلعات العميل وصياغة وثيقة المتطلبات التشغيلية (PRD) وقصص المستخدمين وهيكلة البيانات.',
-    providerId: 'prov-groq',
-    providerName: 'Groq Cloud LPU Engine',
-    model: 'llama-3.3-70b-versatile',
+    providerId: 'prov-gemini',
+    providerName: 'Google Gemini Enterprise',
+    model: 'gemini-3.8-flash',
     apiKey: '',
     useProviderKey: true,
     temperature: 0.6,
@@ -460,18 +464,18 @@ const DEFAULT_AGENTS: FactoryAgent[] = [
   {
     gate: 2,
     gateCode: 'GATE 02',
-    title: 'وكيل التصميم وتجربة المستخدم (Google Stitch UI/UX Agent)',
-    roleEn: 'Google Stitch UI/UX & Design System Architect',
-    desc: 'تحويل وثيقة الـ PRD المعتمدة عبر محرك Google Stitch إلى واجهات عصرية متجاوبة تدعم العربية (RTL) بنظام Tailwind CSS.',
-    providerId: 'prov-stitch',
-    providerName: 'Google Stitch (UI/UX Design AI)',
-    model: 'google-stitch-v2-ui',
+    title: 'وكيل التصميم وتجربة المستخدم (UI/UX Design Agent)',
+    roleEn: 'UI/UX & Design System Architect',
+    desc: 'تحويل وثيقة الـ PRD المعتمدة إلى مواصفات تصميم وشاشات واجهات عصرية متجاوبة تدعم العربية (RTL) بنظام Tailwind CSS.',
+    providerId: 'prov-gemini',
+    providerName: 'Google Gemini Enterprise',
+    model: 'gemini-3.8-flash',
     apiKey: '',
     useProviderKey: true,
-    temperature: 0.7,
+    temperature: 0.6,
     maxTokens: 4096,
     enabled: true,
-    systemPrompt: 'أنت وكيل التصميم والواجهات (Gate 2 Google Stitch Design Agent) في مصنع OGroup AI Factory. مهمتك تحويل وثيقة المتطلبات إلى توصيف بصري دقيق، نظام ألوان، وتخطيط شاشات متجاوب يدعم العربية (RTL) باستخدام Tailwind CSS.',
+    systemPrompt: 'أنت وكيل التصميم والواجهات (Gate 2 Design Agent) في مصنع OGroup AI Factory. مهمتك تحويل وثيقة المتطلبات إلى توصيف بصري دقيق، نظام ألوان، وتخطيط شاشات متجاوب يدعم العربية (RTL) باستخدام Tailwind CSS.',
   },
   {
     gate: 3,
@@ -479,9 +483,9 @@ const DEFAULT_AGENTS: FactoryAgent[] = [
     title: 'وكيل البرمجة وتوليد الكود (Full-Stack Coding Agent)',
     roleEn: 'Senior Full-Stack Software Engineer',
     desc: 'بناء الشيفرة البرمجية الكاملة للواجهات الأمامية والخلفية وقواعد البيانات مع ربط واجهات البرمجة.',
-    providerId: 'prov-anthropic',
-    providerName: 'Anthropic Claude Direct API',
-    model: 'claude-3-7-sonnet',
+    providerId: 'prov-gemini',
+    providerName: 'Google Gemini Enterprise',
+    model: 'gemini-3.8-flash',
     apiKey: '',
     useProviderKey: true,
     temperature: 0.4,
@@ -495,9 +499,9 @@ const DEFAULT_AGENTS: FactoryAgent[] = [
     title: 'وكيل الفحص وضمان الجودة (QA & Security Agent)',
     roleEn: 'Automated QA & Cybersecurity Auditor',
     desc: 'إجراء اختبارات القبول، فحص الثغرات الأمنية (OWASP)، والتحقق من سلامة البناء والأداء.',
-    providerId: 'prov-openai',
-    providerName: 'OpenAI Platform Enterprise',
-    model: 'gpt-4o-2024-11-20',
+    providerId: 'prov-gemini',
+    providerName: 'Google Gemini Enterprise',
+    model: 'gemini-3.8-flash',
     apiKey: '',
     useProviderKey: true,
     temperature: 0.3,
@@ -533,10 +537,10 @@ const mergeAgentsWithDefaults = (savedList: FactoryAgent[], providers: FactoryPr
       providers.find((p) => p.id === saved.providerId) ||
       providers.find((p) => p.id === def.providerId) ||
       providers[0];
-    const pType = linkedProv ? inferProviderTypeClient(linkedProv) : 'gemini';
-    const resolvedModel = isModelCompatibleClient(saved.model, pType)
-      ? saved.model
-      : linkedProv?.model || def.model;
+    const resolvedModel =
+      saved.model && String(saved.model).trim()
+        ? String(saved.model).trim()
+        : linkedProv?.model || def.model;
 
     return {
       ...def,
@@ -591,6 +595,32 @@ export default function App() {
     document: RequirementsDocument;
     markdown: string;
   } | null>(null);
+
+  // Gate 2..5 Durable Artifacts State
+  const [gate2Design, setGate2Design] = useState<DesignArtifact | null>(null);
+  const [gate2Version, setGate2Version] = useState<number>(0);
+  const [gate2Locked, setGate2Locked] = useState<boolean>(false);
+  const [gate2ActiveScreenId, setGate2ActiveScreenId] = useState<string>('');
+
+  const [gate3Code, setGate3Code] = useState<CodeArtifact | null>(null);
+  const [gate3Version, setGate3Version] = useState<number>(0);
+  const [gate3Locked, setGate3Locked] = useState<boolean>(false);
+  const [gate3ViewTab, setGate3ViewTab] = useState<'code' | 'preview' | 'architecture'>('code');
+  const [gate3EditingContent, setGate3EditingContent] = useState<string>('');
+  const [gate3Dirty, setGate3Dirty] = useState<boolean>(false);
+
+  const [gate4Report, setGate4Report] = useState<QAReportArtifact | null>(null);
+  const [gate4Version, setGate4Version] = useState<number>(0);
+  const [gate4Locked, setGate4Locked] = useState<boolean>(false);
+  const [gate4Repairing, setGate4Repairing] = useState<boolean>(false);
+
+  const [gate5Delivery, setGate5Delivery] = useState<DeliveryArtifact | null>(null);
+  const [gate5Version, setGate5Version] = useState<number>(0);
+  const [gate5Locked, setGate5Locked] = useState<boolean>(false);
+  const [gate5ActiveDocTab, setGate5ActiveDocTab] = useState<'summary' | 'readme' | 'deployment' | 'env' | 'manifest'>('summary');
+
+  const [gateApprovals, setGateApprovals] = useState<Record<number, boolean>>({});
+
   const [savedByokConnections, setSavedByokConnections] = useState<
     { id: string; provider: string; model: string; active: boolean; hasKey: boolean; maskedKey: string }[]
   >([]);
@@ -640,9 +670,9 @@ export default function App() {
   const [newProjMode, setNewProjMode] = useState<CommercialMode>('managed');
 
   // BYOK Settings State
-  const [byokProvider, setByokProvider] = useState<string>('stitch');
+  const [byokProvider, setByokProvider] = useState<string>('gemini');
   const [byokApiKey, setByokApiKey] = useState(() => localStorage.getItem('ogroup_byok_key') || '');
-  const [byokModel, setByokModel] = useState('google-stitch-v2-ui');
+  const [byokModel, setByokModel] = useState('gemini-3.8-flash');
 
   // Factory Providers & Five Agents State (Connected to Backend)
   const [factoryProviders, setFactoryProviders] = useState<FactoryProvider[]>(() => {
@@ -665,7 +695,7 @@ export default function App() {
   });
   const [hasSystemEnvKey, setHasSystemEnvKey] = useState(true);
   const [testingTargetId, setTestingTargetId] = useState<string | null>(null);
-  const [agentTestResults, setAgentTestResults] = useState<Record<string, { ok: boolean; reply: string; latencyMs: number; model: string; keySource: string }>>({});
+  const [agentTestResults, setAgentTestResults] = useState<Record<string, { ok: boolean; status?: string; reply: string; latencyMs: number; model: string; keySource: string }>>({});
   const [visibleKeyIds, setVisibleKeyIds] = useState<Record<string, boolean>>({});
   const [customModelModeGates, setCustomModelModeGates] = useState<Record<number, boolean>>({});
   const [selectedCodeFileIdx, setSelectedCodeFileIdx] = useState<number>(0);
@@ -692,16 +722,16 @@ export default function App() {
       { id: '1', sender: 'ai', text: 'مرحباً بك في بوابة المتطلبات (Gate 1). أنا وكيل المنتجات الخاص بك. كيف يمكنني مساعدتك في تطوير فكرتك اليوم؟', time: '10:00' }
     ],
     2: [
-      { id: '1', sender: 'ai', text: 'أهلاً بك في بوابة التصميم (Gate 2 • Google Stitch Studio). لقد قمت بتوليد التصميم التفاعلي الحي لمشروعك في اللوحة المقابلة (شاشة لوحة المواعيد، شاشة الحجز التفاعلي، وبوابة العرض). يمكنك تجربة الشاشات مباشرة أو طلب أي تعديل في الألوان والمكونات هنا.', time: '10:05', meta: 'Google Stitch • google-stitch-design-pro' }
+      { id: '1', sender: 'ai', text: 'مرحباً بك في بوابة التصميم (Gate 2). اضغط على زر توليد التصميم أو اكتب توجيهاتك لتحويل وثيقة المتطلبات المعتمدة إلى شاشات وتصاميم حية.', time: '10:05' }
     ],
     3: [
-      { id: '1', sender: 'ai', text: 'مرحباً بك في بوابة البرمجة (Gate 3). سأقوم بتحويل التصاميم إلى أكواد برمجية حقيقية.', time: '10:10' }
+      { id: '1', sender: 'ai', text: 'مرحباً بك في بوابة البرمجة (Gate 3). سأقوم بتحويل المتطلبات والتصاميم المعتمدة إلى ملفات برمجية حقيقية قابلة للتشغيل والمعاينة.', time: '10:10' }
     ],
     4: [
-      { id: '1', sender: 'ai', text: 'مرحباً بك في بوابة فحص الجودة (Gate 4). سأقوم بإجراء اختبارات التوافق وفحص الأمان.', time: '10:15' },
+      { id: '1', sender: 'ai', text: 'مرحباً بك في بوابة فحص الجودة والأمان (Gate 4). سأقوم بإجراء اختبارات التحقق من البنية والأمان ومطابقة المتطلبات مع إمكانية الإصلاح التلقائي.', time: '10:15' },
     ],
     5: [
-      { id: '1', sender: 'ai', text: 'مرحباً بك في بوابة التسليم النهائي (Gate 5). حزمة المشروع جاهزة للتحميل.', time: '10:20' }
+      { id: '1', sender: 'ai', text: 'مرحباً بك في بوابة التسليم النهائي (Gate 5). سأقوم بتوليد حزمة المشروع النهائية وملفات التشغيل والتحميل.', time: '10:20' }
     ]
   });
   const [chatInput, setChatInput] = useState('');
@@ -819,6 +849,21 @@ export default function App() {
         }),
       });
       const data = await res.json();
+      if (data.status === 'integration_required') {
+        setAgentTestResults(prev => ({
+          ...prev,
+          [targetKey]: {
+            ok: false,
+            status: 'integration_required',
+            reply: data.error || data.reply || 'يتطلب ربط تكامل خارجي حقيقي (Integration Required)',
+            latencyMs: data.latencyMs || 0,
+            model: data.model || targetProvider?.model || 'google-stitch-v2-ui',
+            keySource: data.keySource || 'Integration Required',
+          }
+        }));
+        showToast(`تنبيه: ${data.error || 'هذا المحرك يتطلب تكامل API خارجي حقيقي'}`);
+        return;
+      }
       if (!res.ok || !data.ok) {
         throw new Error(data.error || 'فشل الاتصال بالمزود');
       }
@@ -826,6 +871,7 @@ export default function App() {
         ...prev,
         [targetKey]: {
           ok: true,
+          status: 'connected',
           reply: data.reply,
           latencyMs: data.latencyMs || 115,
           model: data.model || targetAgent?.model || 'gemini-3.8-flash',
@@ -838,6 +884,7 @@ export default function App() {
         ...prev,
         [targetKey]: {
           ok: false,
+          status: 'failed',
           reply: err.message || 'خطأ في التحقق من المفتاح',
           latencyMs: 0,
           model: 'error',
@@ -855,7 +902,7 @@ export default function App() {
     for (const ag of factoryAgents) {
       await handleTestAgentOrProvider(`agent-${ag.gate}`, ag.gate);
     }
-    showToast('تم اختبار وتأكيد عمل جميع الوكلاء الخمسة بنجاح!');
+    showToast('اكتمل فحص الوكلاء الخمسة.');
   };
 
   const ENGINE_PRESETS: Record<AIProviderEngineType, { label: string; model: string; endpoint: string }> = {
@@ -952,49 +999,135 @@ export default function App() {
       : { 'Content-Type': 'application/json' };
   };
 
-  // Load Gate 1 durable state and/or Approved Artifact when active project changes
+  // Load durable state for all 5 gates when active project changes
   const fetchProjectGate1Data = async (projectId: string, tokenOverride?: string) => {
     const tok = tokenOverride !== undefined ? tokenOverride : sessionToken;
     if (!projectId || !tok) return;
     try {
-      const res = await fetch(`/api/projects/${projectId}/gates/1`, {
-        headers: authHeaders(tok),
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data.document) {
-        setGate1Document(data.document);
-        setGate1Markdown(data.markdown || formatRequirementsToMarkdown(data.document));
-        setGate1Version(Number(data.version || 1));
-        setGate1Locked(Boolean(data.locked));
-        setGate1Dirty(false);
-        setGate1ErrorBanner(null);
+      const [gate1Res, fullProjRes] = await Promise.all([
+        fetch(`/api/projects/${projectId}/gates/1`, { headers: authHeaders(tok) }),
+        fetch(`/api/projects/${projectId}`, { headers: authHeaders(tok) }),
+      ]);
+
+      if (gate1Res.ok) {
+        const data = await gate1Res.json();
+        if (data.document) {
+          setGate1Document(data.document);
+          setGate1Markdown(data.markdown || formatRequirementsToMarkdown(data.document));
+          setGate1Version(Number(data.version || 1));
+          setGate1Locked(Boolean(data.locked));
+          setGate1Dirty(false);
+          setGate1ErrorBanner(null);
+        }
+        if (Array.isArray(data.chatHistory)) {
+          setChatMessages(prev => ({
+            ...prev,
+            1: data.chatHistory,
+          }));
+        }
+        if (data.approval && data.approval.approved) {
+          setGate1ApprovedArtifact({
+            approvedVersion: data.approval.approvedVersion,
+            approvedAt: data.approval.approvedAt,
+            document: data.approval.document,
+            markdown: data.approval.markdown,
+          });
+        } else {
+          setGate1ApprovedArtifact(null);
+        }
       }
-      if (Array.isArray(data.chatHistory)) {
-        setChatMessages(prev => ({
-          ...prev,
-          1: data.chatHistory,
-        }));
-      }
-      if (data.approval && data.approval.approved) {
-        setGate1ApprovedArtifact({
-          approvedVersion: data.approval.approvedVersion,
-          approvedAt: data.approval.approvedAt,
-          document: data.approval.document,
-          markdown: data.approval.markdown,
-        });
-      } else {
-        setGate1ApprovedArtifact(null);
-      }
-      if (data.project) {
-        setProjects(prev => prev.map(p => (p.id === data.project.id ? data.project : p)));
+
+      if (fullProjRes.ok) {
+        const fullData = await fullProjRes.json();
+        if (fullData.project) {
+          setProjects(prev => prev.map(p => (p.id === fullData.project.id ? fullData.project : p)));
+        }
+        if (fullData.gates) {
+          // Hydrate chat histories for gates 2..5 if present
+          setChatMessages(prev => {
+            const next = { ...prev };
+            for (const g of [2, 3, 4, 5]) {
+              const gState = fullData.gates[g];
+              if (gState && Array.isArray(gState.chatHistory) && gState.chatHistory.length > 0) {
+                next[g] = gState.chatHistory;
+              }
+            }
+            return next;
+          });
+
+          // Gate 2 Design
+          const g2 = fullData.gates[2];
+          if (g2?.artifact?.artifact) {
+            const design = g2.artifact.artifact as DesignArtifact;
+            setGate2Design(design);
+            setGate2Version(g2.artifact.version);
+            setGate2Locked(Boolean(g2.artifact.locked));
+            if (design.screens?.length > 0 && !gate2ActiveScreenId) {
+              setGate2ActiveScreenId(design.screens[0].id);
+            }
+          } else {
+            setGate2Design(null);
+            setGate2Version(0);
+            setGate2Locked(false);
+          }
+
+          // Gate 3 Code
+          const g3 = fullData.gates[3];
+          if (g3?.artifact?.artifact) {
+            const codeArt = g3.artifact.artifact as CodeArtifact;
+            setGate3Code(codeArt);
+            setGate3Version(g3.artifact.version);
+            setGate3Locked(Boolean(g3.artifact.locked));
+            setSelectedCodeFileIdx(0);
+            setGate3EditingContent(codeArt.files?.[0]?.content || '');
+            setGate3Dirty(false);
+          } else {
+            setGate3Code(null);
+            setGate3Version(0);
+            setGate3Locked(false);
+          }
+
+          // Gate 4 QA Report
+          const g4 = fullData.gates[4];
+          if (g4?.artifact?.artifact) {
+            const qaArt = g4.artifact.artifact as QAReportArtifact;
+            setGate4Report(qaArt);
+            setGate4Version(g4.artifact.version);
+            setGate4Locked(Boolean(g4.artifact.locked));
+          } else {
+            setGate4Report(null);
+            setGate4Version(0);
+            setGate4Locked(false);
+          }
+
+          // Gate 5 Delivery
+          const g5 = fullData.gates[5];
+          if (g5?.artifact?.artifact) {
+            const delivArt = g5.artifact.artifact as DeliveryArtifact;
+            setGate5Delivery(delivArt);
+            setGate5Version(g5.artifact.version);
+            setGate5Locked(Boolean(g5.artifact.locked));
+          } else {
+            setGate5Delivery(null);
+            setGate5Version(0);
+            setGate5Locked(false);
+          }
+        }
+
+        if (Array.isArray(fullData.approvals)) {
+          const appMap: Record<number, boolean> = {};
+          for (const ap of fullData.approvals) {
+            if (ap.approved) appMap[ap.gateNumber] = true;
+          }
+          setGateApprovals(appMap);
+        }
       }
     } catch (err) {
-      console.error('Failed to load Gate 1 state:', err);
+      console.error('Failed to load project gates state:', err);
     }
   };
 
-  // Restore durable session, projects, and Gate 1 state on mount/reload
+  // Restore durable session, projects, and Gate 1..5 state on mount/reload
   useEffect(() => {
     const restoreSession = async () => {
       if (sessionToken) {
@@ -1125,6 +1258,10 @@ export default function App() {
     setGate1Document(null);
     setGate1Markdown('');
     setGate1ApprovedArtifact(null);
+    setGate2Design(null);
+    setGate3Code(null);
+    setGate4Report(null);
+    setGate5Delivery(null);
     setCurrentView('login');
     setActiveScreen('dashboard');
     localStorage.removeItem('ogroup_session_token');
@@ -1222,16 +1359,95 @@ export default function App() {
     }
   };
 
-  // Execute the active Stage Agent (Gate 1 uses dedicated Requirements Agent endpoint)
+  // Save manual file edit in Gate 3
+  const handleSaveGate3FileEdit = async () => {
+    if (!activeProject || !sessionToken || !gate3Code) return;
+    setGate1ErrorBanner(null);
+    try {
+      const updatedFiles = gate3Code.files.map((f, idx) =>
+        idx === selectedCodeFileIdx ? { ...f, content: gate3EditingContent } : f
+      );
+      const nextArtifact: CodeArtifact = {
+        ...gate3Code,
+        files: updatedFiles,
+      };
+      const res = await fetch(`/api/projects/${activeProject.id}/gates/3/files`, {
+        method: 'PUT',
+        headers: authHeaders(),
+        body: JSON.stringify({
+          artifact: nextArtifact,
+          expectedVersion: gate3Version,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'فشل حفظ تعديلات الكود');
+      }
+      setGate3Code(data.artifact);
+      setGate3Version(data.version);
+      setGate3Dirty(false);
+      if (data.project) {
+        setProjects(prev => prev.map(p => (p.id === data.project.id ? data.project : p)));
+      }
+      showToast(`تم حفظ تعديلات الملف بنجاح (الإصدار v${data.version})`);
+    } catch (err: any) {
+      setGate1ErrorBanner(err.message || 'فشل حفظ تعديلات الكود');
+      showToast(err.message || 'فشل حفظ تعديلات الكود');
+    }
+  };
+
+  // Run automated Gate 4 -> Gate 3 -> Gate 4 repair loop
+  const handleRepairGate4 = async () => {
+    if (!activeProject || !sessionToken || gate4Repairing || isAiProcessing) return;
+    setGate4Repairing(true);
+    setGate1ErrorBanner(null);
+    try {
+      const res = await fetch(`/api/projects/${activeProject.id}/gates/4/repair`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'فشل الإصلاح التلقائي للكود');
+      }
+      if (data.codeArtifact) {
+        setGate3Code(data.codeArtifact);
+        setGate3Version(data.codeVersion);
+        setSelectedCodeFileIdx(0);
+        setGate3EditingContent(data.codeArtifact.files?.[0]?.content || '');
+      }
+      if (data.qaArtifact) {
+        setGate4Report(data.qaArtifact);
+        setGate4Version(data.qaVersion);
+      }
+      if (data.project) {
+        setProjects(prev => prev.map(p => (p.id === data.project.id ? data.project : p)));
+      }
+      if (data.aiMessage) {
+        setChatMessages(prev => ({
+          ...prev,
+          4: [...(prev[4] || []), data.aiMessage],
+        }));
+      }
+      showToast(`تم إصلاح الكود وإعادة الفحص بنجاح (${data.qaArtifact?.status === 'passed' ? 'اجتاز الفحص' : 'يحتاج مراجعة'})`);
+    } catch (err: any) {
+      setGate1ErrorBanner(err.message || 'تعذر إكمال حلقة الإصلاح التلقائي');
+      showToast(err.message || 'فشل الإصلاح التلقائي');
+    } finally {
+      setGate4Repairing(false);
+    }
+  };
+
+  // Execute the active Stage Agent across all 5 Gates
   const executeStageAgentPrompt = async (promptToRun: string) => {
     if (!promptToRun.trim() || isAiProcessing || !activeProject) return;
 
     const userMsgText = promptToRun.trim();
     const gateNum = activeProject.currentGate;
+    setGate1ErrorBanner(null);
 
     if (gateNum === 1) {
-      setGate1ErrorBanner(null);
-
       // If user made manual edits before chatting, persist them first so the AI uses the latest version
       let versionForChat = gate1Version;
       if (gate1Dirty && gate1Document) {
@@ -1332,7 +1548,6 @@ export default function App() {
       } catch (err: any) {
         const errMessage = err?.message || 'فشل الاتصال بمزود الذكاء الاصطناعي. لم يتم تعديل الوثيقة.';
         setGate1ErrorBanner(errMessage);
-        // Remove optimistic message on failure so chat stays truthful to persisted state
         setChatMessages(prev => ({
           ...prev,
           1: (prev[1] || []).filter(m => m.id !== tempUserMsg.id),
@@ -1345,8 +1560,97 @@ export default function App() {
       return;
     }
 
-    // Gate 2..5 UI preview behavior (Gate 2..5 agents are scheduled for subsequent tasks)
-    showToast(`البوابة ${gateNum}: يتم عرض المخرجات المعتمدة.`);
+    // Gate 2, 3, 4, 5 real execution endpoints
+    const endpointByGate: Record<number, string> = {
+      2: `/api/projects/${activeProject.id}/gates/2/generate`,
+      3: `/api/projects/${activeProject.id}/gates/3/generate`,
+      4: `/api/projects/${activeProject.id}/gates/4/run`,
+      5: `/api/projects/${activeProject.id}/gates/5/generate`,
+    };
+    const targetEndpoint = endpointByGate[gateNum];
+    if (!targetEndpoint) return;
+
+    const tempUserMsg: ChatMessage = {
+      id: `temp-${Date.now()}`,
+      sender: 'user',
+      text: userMsgText,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+
+    setChatMessages(prev => ({
+      ...prev,
+      [gateNum]: [...(prev[gateNum] || []), tempUserMsg],
+    }));
+    setChatInput('');
+    setIsAiProcessing(true);
+
+    try {
+      const res = await fetch(targetEndpoint, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({
+          prompt: userMsgText,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || `فشل تنفيذ وكيل البوابة ${gateNum}`);
+      }
+
+      if (gateNum === 2 && data.artifact) {
+        const design = data.artifact as DesignArtifact;
+        setGate2Design(design);
+        setGate2Version(data.version);
+        setGate2Locked(false);
+        if (design.screens?.length > 0) {
+          setGate2ActiveScreenId(design.screens[design.screens.length - 1].id);
+        }
+      } else if (gateNum === 3 && data.artifact) {
+        const codeArt = data.artifact as CodeArtifact;
+        setGate3Code(codeArt);
+        setGate3Version(data.version);
+        setGate3Locked(false);
+        setSelectedCodeFileIdx(0);
+        setGate3EditingContent(codeArt.files?.[0]?.content || '');
+        setGate3Dirty(false);
+      } else if (gateNum === 4 && data.artifact) {
+        const qaArt = data.artifact as QAReportArtifact;
+        setGate4Report(qaArt);
+        setGate4Version(data.version);
+        setGate4Locked(false);
+      } else if (gateNum === 5 && data.artifact) {
+        const delivArt = data.artifact as DeliveryArtifact;
+        setGate5Delivery(delivArt);
+        setGate5Version(data.version);
+        setGate5Locked(false);
+      }
+
+      if (data.project) {
+        setProjects(prev => prev.map(p => (p.id === data.project.id ? data.project : p)));
+      }
+
+      setChatMessages(prev => {
+        const withoutTemp = (prev[gateNum] || []).filter(m => m.id !== tempUserMsg.id);
+        const nextMsgs = [...withoutTemp];
+        if (data.userMessage) nextMsgs.push(data.userMessage);
+        else nextMsgs.push(tempUserMsg);
+        if (data.aiMessage) nextMsgs.push(data.aiMessage);
+        return { ...prev, [gateNum]: nextMsgs };
+      });
+
+      showToast(`تم تحديث مخرجات البوابة ${gateNum} (v${data.version}) عبر ${data.provider} (${data.model})`);
+    } catch (err: any) {
+      const errMessage = err?.message || `فشل تنفيذ طلب البوابة ${gateNum}`;
+      setGate1ErrorBanner(errMessage);
+      setChatMessages(prev => ({
+        ...prev,
+        [gateNum]: (prev[gateNum] || []).filter(m => m.id !== tempUserMsg.id),
+      }));
+      setChatInput(userMsgText);
+      showToast(`خطأ: ${errMessage}`);
+    } finally {
+      setIsAiProcessing(false);
+    }
   };
 
   // Handle AI Chat Form Submit
@@ -1356,15 +1660,16 @@ export default function App() {
     await executeStageAgentPrompt(chatInput);
   };
 
-  // APPROVE & CONTINUE BUTTON (GATE 1 REAL VALIDATION, LOCKING & SNAPSHOT)
+  // APPROVE & CONTINUE BUTTON (GATES 1-5 REAL VALIDATION, LOCKING & SNAPSHOT)
   const handleApproveAndAdvance = async () => {
     if (!activeProject || !sessionToken) return;
     const currentG = activeProject.currentGate;
 
-    if (currentG === 1) {
-      setGate1Approving(true);
-      setGate1ErrorBanner(null);
-      try {
+    setGate1Approving(true);
+    setGate1ErrorBanner(null);
+
+    try {
+      if (currentG === 1) {
         const bodyPayload: Record<string, unknown> = {
           expectedVersion: gate1Version,
         };
@@ -1398,6 +1703,7 @@ export default function App() {
           document: approval.document,
           markdown: approval.markdown,
         });
+        setGateApprovals(prev => ({ ...prev, 1: true }));
 
         setProjects(prev =>
           prev.map(p =>
@@ -1416,25 +1722,51 @@ export default function App() {
         );
 
         showToast(`تم اعتماد وقفل وثيقة المتطلبات (v${approval.approvedVersion}) والانتقال إلى البوابة 2 بنجاح!`);
-      } catch (err: any) {
-        setGate1ErrorBanner(err.message || 'فشل اعتماد البوابة الأولى.');
-        showToast(err.message || 'فشل اعتماد البوابة الأولى');
-      } finally {
-        setGate1Approving(false);
+        return;
       }
-      return;
-    }
 
-    if (currentG < 5) {
-      setProjects(prev =>
-        prev.map(p => (p.id === activeProject.id ? { ...p, currentGate: p.currentGate + 1 } : p))
-      );
-      showToast(`تم الانتقال إلى البوابة ${currentG + 1}`);
-    } else {
-      setProjects(prev =>
-        prev.map(p => (p.id === activeProject.id ? { ...p, status: 'completed' } : p))
-      );
-      showToast('تم اعتماد وتسليم المشروع بنجاح!');
+      // Gates 2, 3, 4, 5 real server-side approval
+      if (currentG === 3 && gate3Dirty) {
+        await handleSaveGate3FileEdit();
+      }
+      const versionMap: Record<number, number> = {
+        2: gate2Version,
+        3: gate3Version,
+        4: gate4Version,
+        5: gate5Version,
+      };
+      const res = await fetch(`/api/projects/${activeProject.id}/gates/${currentG}/approve`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({
+          expectedVersion: versionMap[currentG] || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || `فشل اعتماد البوابة ${currentG}. تأكد من توليد المخرجات أولاً.`);
+      }
+
+      setGateApprovals(prev => ({ ...prev, [currentG]: true }));
+      if (currentG === 2) setGate2Locked(true);
+      if (currentG === 3) setGate3Locked(true);
+      if (currentG === 4) setGate4Locked(true);
+      if (currentG === 5) setGate5Locked(true);
+
+      if (data.project) {
+        setProjects(prev => prev.map(p => (p.id === data.project.id ? data.project : p)));
+      }
+
+      if (currentG < 5) {
+        showToast(`تم اعتماد وقفل مخرجات البوابة ${currentG} والانتقال إلى البوابة ${currentG + 1} بنجاح!`);
+      } else {
+        showToast('تم اعتماد البوابة الخامسة وتسليم المشروع نهائياً بنجاح!');
+      }
+    } catch (err: any) {
+      setGate1ErrorBanner(err.message || `فشل اعتماد البوابة ${currentG}`);
+      showToast(err.message || `فشل اعتماد البوابة ${currentG}`);
+    } finally {
+      setGate1Approving(false);
     }
   };
 
@@ -1475,6 +1807,20 @@ export default function App() {
 
       setProjects(prev => [createdProj, ...prev]);
       setActiveProjectId(createdProj.id);
+
+      setGate2Design(null);
+      setGate2Version(0);
+      setGate2Locked(false);
+      setGate3Code(null);
+      setGate3Version(0);
+      setGate3Locked(false);
+      setGate4Report(null);
+      setGate4Version(0);
+      setGate4Locked(false);
+      setGate5Delivery(null);
+      setGate5Version(0);
+      setGate5Locked(false);
+      setGateApprovals({});
 
       if (data.gate1) {
         setGate1Document(data.gate1.document);
@@ -4075,46 +4421,73 @@ export default function App() {
                       <div>
                         <h2 className="text-sm font-bold text-slate-800">{activeProject.name}</h2>
                         <span className="text-[11px] text-orange-600 font-semibold">
-                          البوابة الحالية: {activeProject.currentGate} من 5 • الإصدار المحفوظ: v{gate1Version}
-                          {gate1Locked ? ' (معتمد ومقفل)' : ''}
+                          البوابة الحالية: {activeProject.currentGate} من 5 • الإصدار المحفوظ: v
+                          {activeProject.currentGate === 1
+                            ? gate1Version
+                            : activeProject.currentGate === 2
+                            ? gate2Version
+                            : activeProject.currentGate === 3
+                            ? gate3Version
+                            : activeProject.currentGate === 4
+                            ? gate4Version
+                            : gate5Version}
+                          {(activeProject.currentGate === 1 && gate1Locked) ||
+                          (activeProject.currentGate === 2 && gate2Locked) ||
+                          (activeProject.currentGate === 3 && gate3Locked) ||
+                          (activeProject.currentGate === 4 && gate4Locked) ||
+                          (activeProject.currentGate === 5 && gate5Locked)
+                            ? ' (معتمد ومقفل)'
+                            : ''}
                         </span>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {[1, 2, 3, 4, 5].map((gNum) => (
-                        <button
-                          key={gNum}
-                          type="button"
-                          onClick={() => {
-                            if (gNum > 1 && !gate1Locked && !activeProject.gate1Approved) {
-                              showToast('لا يمكن الانتقال للبوابة التالية قبل اعتماد وثيقة المتطلبات في البوابة الأولى.');
-                              return;
-                            }
-                            setProjects(prev => prev.map(p => p.id === activeProject.id ? { ...p, currentGate: gNum } : p));
-                          }}
-                          className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
-                            activeProject.currentGate === gNum
-                              ? 'bg-orange-600 text-white shadow-xs'
-                              : activeProject.currentGate > gNum || (gNum === 1 && gate1Locked)
-                              ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
-                              : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                          }`}
-                        >
-                          <span>بوابة {gNum}</span>
-                        </button>
-                      ))}
+                      {[1, 2, 3, 4, 5].map((gNum) => {
+                        const isApproved =
+                          gNum === 1
+                            ? gate1Locked || Boolean(activeProject.gate1Approved) || Boolean(gateApprovals[1])
+                            : Boolean(gateApprovals[gNum]);
+                        const prevApproved =
+                          gNum === 1
+                            ? true
+                            : gNum === 2
+                            ? gate1Locked || Boolean(activeProject.gate1Approved) || Boolean(gateApprovals[1])
+                            : Boolean(gateApprovals[gNum - 1]);
+                        return (
+                          <button
+                            key={gNum}
+                            type="button"
+                            onClick={() => {
+                              if (gNum > 1 && !prevApproved) {
+                                showToast(`لا يمكن الانتقال للبوابة ${gNum} قبل اعتماد البوابة ${gNum - 1} السابقة.`);
+                                return;
+                              }
+                              setProjects(prev => prev.map(p => (p.id === activeProject.id ? { ...p, currentGate: gNum } : p)));
+                            }}
+                            className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                              activeProject.currentGate === gNum
+                                ? 'bg-orange-600 text-white shadow-xs'
+                                : activeProject.currentGate > gNum || isApproved
+                                ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                                : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                            }`}
+                          >
+                            <span>بوابة {gNum}</span>
+                          </button>
+                        );
+                      })}
                     </div>
 
                     <button 
                       onClick={handleApproveAndAdvance}
-                      disabled={gate1Approving || isAiProcessing}
+                      disabled={gate1Approving || isAiProcessing || gate4Repairing}
                       className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-md flex items-center gap-2 transition"
                     >
                       <CheckCircle className="w-4 h-4" />
                       <span>
                         {gate1Approving
-                          ? 'جاري التحقق واعتماد الوثيقة...'
+                          ? 'جاري التحقق واعتماد البوابة...'
                           : activeProject.currentGate === 5
                           ? 'اعتماد وتسليم المشروع نهائياً'
                           : 'اعتماد البوابة والانتقال للتالية (Approve & Continue)'}
@@ -4131,11 +4504,24 @@ export default function App() {
                           const currentAgent = factoryAgents.find(a => a.gate === activeProject.currentGate) || factoryAgents[0];
                           const defaultRunPrompts: Record<number, string> = {
                             1: `أريد نظام إدارة متكامل لمشروع "${activeProject.name}": ${activeProject.description}`,
-                            2: `قم بتحديث وتوليد تصميم الواجهات التفاعلية لمشروع "${activeProject.name}" في لوحة Google Stitch.`,
-                            3: `قم بكتابة وتوليد كود المكونات البرمجية الأساسية لمشروع "${activeProject.name}" بنظام React و TypeScript.`,
-                            4: `قم بإجراء فحص شامل للجودة والأمان السيبراني (QA & OWASP Audit) لمشروع "${activeProject.name}".`,
-                            5: `قم بإعداد خطة الإطلاق السحابي وتكوين Docker وحزمة التسليم النهائية لمشروع "${activeProject.name}".`,
+                            2: `قم بتوليد وتحديث تصميم الواجهات التفاعلية والشاشات لمشروع "${activeProject.name}" استناداً إلى وثيقة المتطلبات المعتمدة.`,
+                            3: `قم بكتابة وتوليد كود المكونات البرمجية الكاملة لمشروع "${activeProject.name}" استناداً إلى المتطلبات والتصميم المعتمد.`,
+                            4: `قم بإجراء فحص شامل للجودة والأمان ومطابقة المتطلبات (QA & Security Verification) لمشروع "${activeProject.name}".`,
+                            5: `قم بإعداد وتوليد حزمة التسليم النهائية وملفات التشغيل والوثائق لمشروع "${activeProject.name}".`,
                           };
+                          const actionLabels: Record<number, string> = {
+                            1: 'توليد المتطلبات',
+                            2: 'توليد التصميم',
+                            3: 'توليد الكود',
+                            4: 'تشغيل الفحص',
+                            5: 'توليد حزمة التسليم',
+                          };
+                          const isCurrentGateLocked =
+                            (activeProject.currentGate === 1 && gate1Locked) ||
+                            (activeProject.currentGate === 2 && gate2Locked) ||
+                            (activeProject.currentGate === 3 && gate3Locked) ||
+                            (activeProject.currentGate === 4 && gate4Locked) ||
+                            (activeProject.currentGate === 5 && gate5Locked);
                           return (
                             <>
                               <div className="flex items-center gap-2.5 min-w-0">
@@ -4149,15 +4535,15 @@ export default function App() {
                                   </span>
                                 </div>
                               </div>
-                              {activeProject.currentGate === 1 && !gate1Locked && (
+                              {!isCurrentGateLocked && (
                                 <button
                                   type="button"
-                                  disabled={isAiProcessing}
-                                  onClick={() => executeStageAgentPrompt(defaultRunPrompts[1])}
+                                  disabled={isAiProcessing || gate4Repairing}
+                                  onClick={() => executeStageAgentPrompt(defaultRunPrompts[activeProject.currentGate])}
                                   className="px-3 py-1.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-[11px] font-bold shadow-2xs transition shrink-0 flex items-center gap-1.5"
                                 >
                                   <Play className="w-3 h-3" />
-                                  <span>توليد المتطلبات</span>
+                                  <span>{actionLabels[activeProject.currentGate]}</span>
                                 </button>
                               )}
                             </>
@@ -4171,7 +4557,7 @@ export default function App() {
                           <div className="flex items-start gap-2">
                             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
                             <div>
-                              <span className="font-bold block">فشل التحديث (لم يتم تغيير الوثيقة المحفوظة):</span>
+                              <span className="font-bold block">فشل العملية:</span>
                               <span>{gate1ErrorBanner}</span>
                             </div>
                           </div>
@@ -4195,11 +4581,13 @@ export default function App() {
                             </div>
                           </div>
                         ))}
-                        {isAiProcessing && (
+                        {(isAiProcessing || gate4Repairing) && (
                           <div className="flex items-center gap-2 text-xs text-slate-500 p-2 bg-orange-50/60 rounded-xl border border-orange-100">
                             <div className="w-4 h-4 border-2 border-orange-600 border-t-transparent rounded-full animate-spin shrink-0"></div>
                             <span>
-                              وكيل المتطلبات يقوم بتحليل طلبك وتحديث الوثيقة المهيكلة...
+                              {gate4Repairing
+                                ? 'جاري إصلاح الكود تلقائياً عبر البوابة 3 وإعادة تشغيل فحوصات البوابة 4...'
+                                : `وكيل البوابة ${activeProject.currentGate} يقوم بمعالجة طلبك وتحديث المخرجات...`}
                             </span>
                           </div>
                         )}
@@ -4209,19 +4597,27 @@ export default function App() {
                       <form onSubmit={handleSendMessage} className="p-4 border-t border-slate-200 bg-slate-50 flex items-center gap-2">
                         <input
                           type="text"
-                          disabled={isAiProcessing || (activeProject.currentGate === 1 && gate1Locked)}
+                          disabled={
+                            isAiProcessing ||
+                            gate4Repairing ||
+                            (activeProject.currentGate === 1 && gate1Locked)
+                          }
                           value={chatInput}
                           onChange={e => setChatInput(e.target.value)}
                           placeholder={
                             activeProject.currentGate === 1 && gate1Locked
                               ? 'تم اعتماد وقفل وثيقة البوابة الأولى'
-                              : 'اكتب فكرتك أو اطلب تعديل وثيقة المتطلبات (مثال: أريد نظام إدارة عيادة طبية)...'
+                              : `اكتب توجيهك لوكيل البوابة ${activeProject.currentGate}...`
                           }
                           className="flex-1 h-11 px-4 rounded-xl bg-white border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:bg-slate-100"
                         />
                         <button
                           type="submit"
-                          disabled={isAiProcessing || (activeProject.currentGate === 1 && gate1Locked)}
+                          disabled={
+                            isAiProcessing ||
+                            gate4Repairing ||
+                            (activeProject.currentGate === 1 && gate1Locked)
+                          }
                           className="w-11 h-11 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-xl flex items-center justify-center shadow-md transition shrink-0"
                         >
                           <Send className="w-4 h-4 rotate-180" />
@@ -4229,16 +4625,29 @@ export default function App() {
                       </form>
                     </div>
 
-                    {/* VISUAL RIGHT PANEL: LIVE REQUIREMENTS DOCUMENT WORKSPACE */}
+                    {/* VISUAL RIGHT PANEL: LIVE DELIVERABLE WORKSPACE */}
                     <div className="w-7/12 bg-slate-100/80 flex flex-col overflow-y-auto p-5 space-y-4">
                       <div className="bg-white rounded-2xl p-4 border border-slate-200 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
                         <div>
                           <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-2 py-0.5 rounded">مساحة العمل الحية • Live Deliverable</span>
                             <span className="text-[10px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono" dir="ltr">
-                              Version v{gate1Version}
+                              Version v
+                              {activeProject.currentGate === 1
+                                ? gate1Version
+                                : activeProject.currentGate === 2
+                                ? gate2Version
+                                : activeProject.currentGate === 3
+                                ? gate3Version
+                                : activeProject.currentGate === 4
+                                ? gate4Version
+                                : gate5Version}
                             </span>
-                            {gate1Locked && (
+                            {((activeProject.currentGate === 1 && gate1Locked) ||
+                              (activeProject.currentGate === 2 && gate2Locked) ||
+                              (activeProject.currentGate === 3 && gate3Locked) ||
+                              (activeProject.currentGate === 4 && gate4Locked) ||
+                              (activeProject.currentGate === 5 && gate5Locked)) && (
                               <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded flex items-center gap-1">
                                 <Lock className="w-3 h-3" />
                                 <span>معتمد ومقفل</span>
@@ -4247,10 +4656,10 @@ export default function App() {
                           </div>
                           <h3 className="text-sm font-bold text-slate-900 mt-1">
                             {activeProject.currentGate === 1 && 'وثيقة متطلبات المنتج المهيكلة (Structured PRD Document)'}
-                            {activeProject.currentGate === 2 && 'بوابة التصميم (Gate 2) — استلام وثيقة المتطلبات المعتمدة'}
-                            {activeProject.currentGate === 3 && 'مستودع الكود المصدري (Source Code Preview)'}
-                            {activeProject.currentGate === 4 && 'نتائج فحص الجودة والأمان (QA Test Results)'}
-                            {activeProject.currentGate === 5 && 'حزمة الإنتاج والتشغيل (Production Bundle)'}
+                            {activeProject.currentGate === 2 && 'بوابة التصميم والواجهات المهيكلة (Gate 2 Design Artifact & Live Preview)'}
+                            {activeProject.currentGate === 3 && 'مستودع الكود المصدري والمعاينة الحية (Gate 3 Code Generation & Preview)'}
+                            {activeProject.currentGate === 4 && 'تقرير فحص الجودة والأمان وحلقة الإصلاح (Gate 4 QA & Security Verification)'}
+                            {activeProject.currentGate === 5 && 'حزمة التسليم النهائية والتحميل (Gate 5 Final Delivery Package)'}
                           </h3>
                         </div>
                         <div className="flex items-center gap-2">
@@ -4485,6 +4894,89 @@ export default function App() {
                                 </div>
                               </div>
                             )}
+
+                            {/* Real Persisted Gate 2 Design Artifact Viewer & Live HTML Preview */}
+                            <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3 shadow-2xs">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                  <h4 className="text-xs font-black text-slate-900">
+                                    مخرجات وكيل التصميم المهيكلة (Persisted Design Artifact {gate2Version > 0 ? `• v${gate2Version}` : '• لم يتم التوليد بعد'})
+                                  </h4>
+                                  <p className="text-[11px] text-slate-500">
+                                    {gate2Design
+                                      ? `${gate2Design.designSummary} (${gate2Design.screens.length} شاشات مهيكلة، ${gate2Design.components.length} مكونات)`
+                                      : 'اضغط على "توليد التصميم" لتحويل المتطلبات المعتمدة في البوابة 1 إلى شاشات وتصاميم حقيقية محفوظة في قاعدة البيانات.'}
+                                  </p>
+                                </div>
+                                {!gate2Locked && (
+                                  <button
+                                    type="button"
+                                    disabled={isAiProcessing}
+                                    onClick={() =>
+                                      executeStageAgentPrompt(
+                                        `قم بتوليد وتحديث تصميم الواجهات التفاعلية والشاشات لمشروع "${activeProject.name}" استناداً إلى وثيقة المتطلبات المعتمدة.`
+                                      )
+                                    }
+                                    className="px-3.5 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs transition flex items-center gap-1.5"
+                                  >
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                    <span>{gate2Design ? 'تحديث التصميم بالذكاء الاصطناعي' : 'توليد التصميم من المتطلبات المعتمدة'}</span>
+                                  </button>
+                                )}
+                              </div>
+
+                              {gate2Design && gate2Design.screens.length > 0 && (
+                                <div className="space-y-3 pt-2 border-t border-slate-100">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {gate2Design.screens.map((scr, sIdx) => {
+                                      const isSelected = (gate2ActiveScreenId || gate2Design.screens[0].id) === scr.id;
+                                      return (
+                                        <button
+                                          key={scr.id}
+                                          type="button"
+                                          onClick={() => setGate2ActiveScreenId(scr.id)}
+                                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                                            isSelected
+                                              ? 'bg-orange-600 text-white shadow-2xs'
+                                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                                          }`}
+                                        >
+                                          {sIdx + 1}. {scr.name} ({scr.route})
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+
+                                  {(() => {
+                                    const activeScr =
+                                      gate2Design.screens.find(s => s.id === gate2ActiveScreenId) || gate2Design.screens[0];
+                                    if (!activeScr) return null;
+                                    return (
+                                      <div className="space-y-2">
+                                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                                          <div>
+                                            <span className="font-bold text-slate-900">{activeScr.name}: </span>
+                                            <span className="text-slate-600">{activeScr.summary}</span>
+                                          </div>
+                                          <span className="font-mono text-[10px] text-orange-700 bg-orange-50 px-2 py-0.5 rounded" dir="ltr">
+                                            Route: {activeScr.route} • Role: {activeScr.primaryRole}
+                                          </span>
+                                        </div>
+                                        <div className="rounded-2xl border border-slate-300 overflow-hidden bg-white h-[360px]">
+                                          <iframe
+                                            title={`gate2-preview-${activeScr.id}`}
+                                            srcDoc={activeScr.htmlContent}
+                                            sandbox="allow-scripts"
+                                            className="w-full h-full border-0"
+                                          />
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              )}
+                            </div>
+
                             {/* Stitch Studio Screen Tabs & Theme Bar */}
                             <div className="bg-white rounded-2xl p-3 border border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs shadow-2xs">
                               <div className="flex items-center gap-1.5 flex-wrap">
@@ -5189,124 +5681,398 @@ export default function App() {
 
                       {activeProject.currentGate === 3 && (
                         <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs space-y-4 flex-1 flex flex-col">
-                          <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-3 flex-wrap">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              {activeProject.codeFiles.map((file, idx) => (
-                                <button
-                                  key={idx}
-                                  type="button"
-                                  onClick={() => setSelectedCodeFileIdx(idx)}
-                                  className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition ${
-                                    selectedCodeFileIdx === idx
-                                      ? 'bg-orange-600 text-white shadow-2xs'
-                                      : 'bg-orange-50 text-orange-700 hover:bg-orange-100'
-                                  }`}
-                                >
-                                  {file.name}
-                                </button>
-                              ))}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => executeStageAgentPrompt(`قم بكتابة كود مكون برمجي كامل لـ "${activeProject.name}" باستخدام React و TypeScript و Tailwind CSS`)}
-                              disabled={isAiProcessing}
-                              className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition flex items-center gap-1.5"
-                            >
-                              <Code2 className="w-3.5 h-3.5 text-orange-400" />
-                              <span>+ توليد ملف كود جديد عبر وكيل البوابة 3</span>
-                            </button>
-                          </div>
-                          <div className="flex-1 bg-slate-950 text-emerald-400 font-mono text-xs rounded-2xl p-4 overflow-x-auto" dir="ltr">
-                            <pre>{activeProject.codeFiles[selectedCodeFileIdx]?.content || activeProject.codeFiles[0]?.content || '// لا توجد ملفات بعد'}</pre>
-                          </div>
+                          {(() => {
+                            const filesList =
+                              gate3Code && gate3Code.files.length > 0
+                                ? gate3Code.files.map(f => ({ name: f.path, content: f.content, description: f.description }))
+                                : activeProject.codeFiles.map(f => ({ name: f.name, content: f.content, description: '' }));
+                            const currentFile = filesList[selectedCodeFileIdx] || filesList[0];
+
+                            return (
+                              <>
+                                <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-3 flex-wrap">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    {filesList.map((file, idx) => (
+                                      <button
+                                        key={idx}
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedCodeFileIdx(idx);
+                                          setGate3EditingContent(file.content);
+                                          setGate3Dirty(false);
+                                        }}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition ${
+                                          selectedCodeFileIdx === idx
+                                            ? 'bg-orange-600 text-white shadow-2xs'
+                                            : 'bg-orange-50 text-orange-700 hover:bg-orange-100'
+                                        }`}
+                                        dir="ltr"
+                                      >
+                                        {file.name}
+                                      </button>
+                                    ))}
+                                  </div>
+
+                                  <div className="flex items-center gap-2">
+                                    <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-[11px] font-bold">
+                                      <button
+                                        type="button"
+                                        onClick={() => setGate3ViewTab('code')}
+                                        className={`px-2.5 py-1 rounded-lg transition ${gate3ViewTab === 'code' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500'}`}
+                                      >
+                                        محرر الكود ({filesList.length})
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setGate3ViewTab('preview')}
+                                        className={`px-2.5 py-1 rounded-lg transition ${gate3ViewTab === 'preview' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500'}`}
+                                      >
+                                        معاينة التطبيق الحية
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setGate3ViewTab('architecture')}
+                                        className={`px-2.5 py-1 rounded-lg transition ${gate3ViewTab === 'architecture' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500'}`}
+                                      >
+                                        البنية المعمارية و APIs
+                                      </button>
+                                    </div>
+
+                                    {!gate3Locked && gate3Code && gate3Dirty && (
+                                      <button
+                                        type="button"
+                                        onClick={handleSaveGate3FileEdit}
+                                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition"
+                                      >
+                                        حفظ تعديل الملف
+                                      </button>
+                                    )}
+
+                                    {!gate3Locked && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          executeStageAgentPrompt(
+                                            `قم بكتابة وتوليد كود المكونات البرمجية الكاملة لمشروع "${activeProject.name}" باستخدام React و TypeScript و Tailwind CSS`
+                                          )
+                                        }
+                                        disabled={isAiProcessing}
+                                        className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition flex items-center gap-1.5"
+                                      >
+                                        <Code2 className="w-3.5 h-3.5 text-orange-400" />
+                                        <span>{gate3Code ? 'تحديث الكود بالذكاء الاصطناعي' : '+ توليد الكود عبر وكيل البوابة 3'}</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {gate3ViewTab === 'code' && (
+                                  <div className="flex-1 flex flex-col space-y-2">
+                                    {currentFile?.description && (
+                                      <div className="text-xs text-slate-500 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
+                                        {currentFile.description}
+                                      </div>
+                                    )}
+                                    <textarea
+                                      disabled={gate3Locked || !gate3Code}
+                                      value={gate3Code ? gate3EditingContent : currentFile?.content || '// اضغط على توليد الكود لإنشاء الملفات البرمجية'}
+                                      onChange={e => {
+                                        setGate3EditingContent(e.target.value);
+                                        setGate3Dirty(true);
+                                      }}
+                                      dir="ltr"
+                                      className="flex-1 min-h-[420px] bg-slate-950 text-emerald-400 font-mono text-xs rounded-2xl p-4 focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+                                    />
+                                  </div>
+                                )}
+
+                                {gate3ViewTab === 'preview' && (
+                                  <div className="flex-1 min-h-[440px] rounded-2xl border border-slate-300 overflow-hidden bg-white">
+                                    {gate3Code?.previewHtml ? (
+                                      <iframe
+                                        title="gate3-live-app-preview"
+                                        srcDoc={gate3Code.previewHtml}
+                                        sandbox="allow-scripts"
+                                        className="w-full h-[440px] border-0"
+                                      />
+                                    ) : (
+                                      <div className="h-[440px] flex items-center justify-center text-xs text-slate-400">
+                                        قم بتوليد الكود أولاً لعرض المعاينة التفاعلية للتطبيق المبرمج.
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {gate3ViewTab === 'architecture' && (
+                                  <div className="flex-1 space-y-4 text-xs overflow-y-auto">
+                                    {gate3Code ? (
+                                      <>
+                                        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1">
+                                          <div className="font-bold text-slate-900">ملخص البنية المعمارية (Architecture Summary)</div>
+                                          <p className="text-slate-600 leading-relaxed">{gate3Code.architectureSummary}</p>
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                                            <div className="font-bold text-slate-900">نقاط النهاية البرمجية (API Endpoints)</div>
+                                            <ul className="space-y-1 font-mono text-[11px] text-slate-700" dir="ltr">
+                                              {gate3Code.apiEndpoints.map((ep, i) => (
+                                                <li key={i}>• {ep}</li>
+                                              ))}
+                                            </ul>
+                                          </div>
+                                          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                                            <div className="font-bold text-slate-900">جداول البيانات وحزم التشغيل</div>
+                                            <ul className="space-y-1 font-mono text-[11px] text-slate-700" dir="ltr">
+                                              {gate3Code.databaseTables.map((tb, i) => (
+                                                <li key={i}>Table: {tb}</li>
+                                              ))}
+                                            </ul>
+                                          </div>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <div className="p-8 text-center text-slate-400">لم يتم توليد الكود المصدري بعد.</div>
+                                    )}
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                       )}
 
                       {activeProject.currentGate === 4 && (
                         <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs space-y-4 flex-1 flex flex-col">
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="grid grid-cols-2 gap-4 flex-1">
+                          <div className="flex items-center justify-between gap-3 flex-wrap">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 flex-1">
                               <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl text-emerald-900 space-y-1">
-                                <span className="text-xs text-emerald-600 font-semibold">الاختبارات الناجحة (Passed Tests)</span>
-                                <div className="text-2xl font-black">{activeProject.testResults?.passed || 20} / {activeProject.testResults?.passed || 20}</div>
+                                <span className="text-xs text-emerald-600 font-semibold">الفحوصات الناجحة (Passed Checks)</span>
+                                <div className="text-2xl font-black">
+                                  {gate4Report
+                                    ? `${gate4Report.summary.passed} / ${gate4Report.summary.total}`
+                                    : `${activeProject.testResults?.passed || 0} / ${(activeProject.testResults?.passed || 0) + (activeProject.testResults?.failed || 0)}`}
+                                </div>
                               </div>
-                              <div className="bg-blue-50 border border-blue-200 p-4 rounded-2xl text-blue-900 space-y-1">
-                                <span className="text-xs text-blue-600 font-semibold">فحص الأمان والثغرات (OWASP)</span>
-                                <div className="text-2xl font-black">آمن 100%</div>
+                              <div className={`border p-4 rounded-2xl space-y-1 ${gate4Report?.status === 'failed' ? 'bg-red-50 border-red-200 text-red-900' : 'bg-blue-50 border-blue-200 text-blue-900'}`}>
+                                <span className="text-xs font-semibold">درجة الجودة والأمان (QA Score)</span>
+                                <div className="text-2xl font-black">
+                                  {gate4Report ? `${gate4Report.summary.score}% (${gate4Report.status === 'passed' ? 'ناجح' : 'يتطلب إصلاح'})` : 'بانتظار الفحص'}
+                                </div>
+                              </div>
+                              <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl text-amber-900 space-y-1">
+                                <span className="text-xs text-amber-700 font-semibold">حلقات الإصلاح التلقائي</span>
+                                <div className="text-2xl font-black">
+                                  {gate4Report ? `${gate4Report.repairIterations} مرات` : '0'}
+                                </div>
                               </div>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => executeStageAgentPrompt(`قم بإجراء فحص أمني واختبار جودة شامل للكود والمتطلبات في "${activeProject.name}" وإصدار التقرير`)}
-                              disabled={isAiProcessing}
-                              className="px-4 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition flex items-center gap-2 shrink-0"
-                            >
-                              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                              <span>تشغيل فحص وكيل البوابة 4 الآن</span>
-                            </button>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              {gate4Report && gate4Report.status === 'failed' && !gate4Locked && (
+                                <button
+                                  type="button"
+                                  onClick={handleRepairGate4}
+                                  disabled={gate4Repairing || isAiProcessing}
+                                  className="px-4 py-3 rounded-2xl bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white text-xs font-bold transition flex items-center gap-2 shadow-sm"
+                                >
+                                  <RefreshCcw className="w-4 h-4" />
+                                  <span>{gate4Repairing ? 'جاري إصلاح الكود...' : 'إصلاح الكود تلقائياً وإعادة الفحص (Auto-Repair)'}</span>
+                                </button>
+                              )}
+                              {!gate4Locked && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    executeStageAgentPrompt(
+                                      `قم بإجراء فحص أمني واختبار جودة شامل للكود والمتطلبات في "${activeProject.name}" وإصدار التقرير`
+                                    )
+                                  }
+                                  disabled={isAiProcessing || gate4Repairing}
+                                  className="px-4 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition flex items-center gap-2 shrink-0"
+                                >
+                                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                                  <span>تشغيل فحص وكيل البوابة 4 الآن</span>
+                                </button>
+                              )}
+                            </div>
                           </div>
+
+                          {gate4Report && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2 max-h-48 overflow-y-auto">
+                                <div className="font-bold text-slate-800">تفاصيل الفحوصات الآلية ({gate4Report.checks.length})</div>
+                                {gate4Report.checks.map(chk => (
+                                  <div key={chk.id} className="flex items-start justify-between gap-2 border-b border-slate-200/60 pb-1.5">
+                                    <div>
+                                      <span className="font-bold">{chk.title}: </span>
+                                      <span className="text-slate-600">{chk.details}</span>
+                                    </div>
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 ${chk.status === 'passed' ? 'bg-emerald-100 text-emerald-800' : chk.status === 'failed' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
+                                      {chk.status.toUpperCase()}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+
+                              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2 max-h-48 overflow-y-auto">
+                                <div className="font-bold text-slate-800">تغطية المتطلبات وفحص الأمان</div>
+                                <p className="text-slate-600">{gate4Report.aiAnalysis}</p>
+                                {gate4Report.securityFindings.length === 0 ? (
+                                  <div className="text-emerald-700 font-bold">✓ لم يتم رصد أي ثغرات أمنية حرجة أو مفاتيح مسربة في الكود.</div>
+                                ) : (
+                                  gate4Report.securityFindings.map((sf, idx) => (
+                                    <div key={idx} className="text-red-700">
+                                      • {typeof sf === 'string' ? sf : JSON.stringify(sf)}
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+                          )}
+
                           <div className="bg-slate-950 text-slate-300 font-mono text-xs rounded-2xl p-4 space-y-1.5 flex-1 overflow-y-auto" dir="ltr">
-                            <div className="text-emerald-400">[PASS] TypeScript Type Checking completed</div>
-                            <div className="text-emerald-400">[PASS] Vite Production Build successful</div>
-                            <div className="text-emerald-400">[PASS] Zero Vulnerabilities detected</div>
-                            {(activeProject.testResults?.logs || []).map((logLine, i) => (
-                              <div key={i} className="text-amber-300">{logLine}</div>
+                            {(gate4Report?.logs || activeProject.testResults?.logs || [
+                              '[INFO] Ready to run Gate 4 QA & Security verification against Gate 3 generated code.',
+                            ]).map((logLine, i) => (
+                              <div key={i} className={logLine.includes('[PASS]') ? 'text-emerald-400' : logLine.includes('[FAIL]') ? 'text-rose-400' : 'text-amber-300'}>
+                                {logLine}
+                              </div>
                             ))}
                           </div>
                         </div>
                       )}
 
                       {activeProject.currentGate === 5 && (
-                        <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs space-y-4 flex-1 flex flex-col justify-center items-center text-center">
-                          <div className="w-16 h-16 rounded-3xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
-                            <PackageCheck className="w-8 h-8" />
+                        <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs space-y-4 flex-1 flex flex-col">
+                          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                                <PackageCheck className="w-6 h-6" />
+                              </div>
+                              <div>
+                                <h3 className="font-bold text-slate-900 text-sm">
+                                  {gate5Delivery ? `حزمة التسليم النهائية جاهزة (${gate5Delivery.zipFileName})` : 'توليد حزمة الإنتاج والتسليم النهائي (Gate 5)'}
+                                </h3>
+                                <p className="text-xs text-slate-500">
+                                  {gate5Delivery
+                                    ? gate5Delivery.releaseSummary
+                                    : 'اضغط على توليد حزمة التسليم لتجميع المتطلبات والتصاميم والكود وتقرير الفحص في أرشيف ZIP حقيقي قابل للتحميل.'}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {!gate5Locked && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    executeStageAgentPrompt(
+                                      `قم بتوليد حزمة التسليم النهائية ودليل التشغيل والإطلاق السحابي لمشروع "${activeProject.name}"`
+                                    )
+                                  }
+                                  disabled={isAiProcessing}
+                                  className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center gap-2"
+                                >
+                                  <Play className="w-3.5 h-3.5 text-orange-400" />
+                                  <span>{gate5Delivery ? 'تحديث حزمة التسليم' : 'توليد حزمة التسليم عبر وكيل البوابة 5'}</span>
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    const res = await fetch(`/api/projects/${activeProject.id}/gates/5/download`, {
+                                      headers: sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {},
+                                    });
+                                    if (!res.ok) {
+                                      const errData = await res.json().catch(() => ({}));
+                                      throw new Error(errData.error || 'يرجى توليد حزمة التسليم في البوابة 5 أولاً قبل التحميل.');
+                                    }
+                                    const blob = await res.blob();
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = gate5Delivery?.zipFileName || `${activeProject.id}-delivery-bundle.zip`;
+                                    a.click();
+                                    URL.revokeObjectURL(url);
+                                    showToast('تم تحميل أرشيف المشروع النهائي (ZIP) بنجاح!');
+                                  } catch (err: any) {
+                                    setGate1ErrorBanner(err.message || 'فشل تحميل ملف ZIP');
+                                    showToast(err.message || 'فشل تحميل ملف ZIP');
+                                  }
+                                }}
+                                className="px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center gap-2"
+                              >
+                                <Download className="w-4 h-4" />
+                                <span>تحميل الحزمة البرمجية الكاملة (ZIP Archive)</span>
+                              </button>
+                            </div>
                           </div>
-                          <h3 className="font-bold text-slate-900 text-base">حزمة الإنتاج جاهزة تماماً للتحميل والتسليم</h3>
-                          <p className="text-xs text-slate-500 max-w-md">
-                            تم فحص المشروع واعتماده عبر البوابات الخمس. يمكنك تشغيل وكيل التسليم (Gate 5) لتوليد دليل النشر السحابي أو تحميل ملفات المشروع الكاملة.
-                          </p>
-                          <div className="flex items-center gap-3 flex-wrap justify-center">
-                            <button
-                              type="button"
-                              onClick={() => executeStageAgentPrompt(`قم بتوليد ملف إعداد Docker وخطوات الإطلاق السحابي الكاملة لمشروع "${activeProject.name}"`)}
-                              disabled={isAiProcessing}
-                              className="px-5 py-3 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center gap-2"
-                            >
-                              <Play className="w-4 h-4 text-orange-400" />
-                              <span>توليد خطة النشر عبر وكيل البوابة 5</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const bundleContent = JSON.stringify(
-                                  {
-                                    project: activeProject.name,
-                                    description: activeProject.description,
-                                    prd: activeProject.prd,
-                                    designNotes: activeProject.designNotes,
-                                    stitchCustomPages,
-                                    codeFiles: activeProject.codeFiles,
-                                    qaResults: activeProject.testResults,
-                                    exportedAt: new Date().toISOString(),
-                                  },
-                                  null,
-                                  2
-                                );
-                                const blob = new Blob([bundleContent], { type: 'application/json' });
-                                const url = URL.createObjectURL(blob);
-                                const a = document.createElement('a');
-                                a.href = url;
-                                a.download = `${activeProject.id}-production-bundle.json`;
-                                a.click();
-                                URL.revokeObjectURL(url);
-                                showToast('تم تحميل الحزمة البرمجية الكاملة للمشروع بنجاح!');
-                              }}
-                              className="px-6 py-3 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center gap-2"
-                            >
-                              <Download className="w-4 h-4" />
-                              <span>تحميل الحزمة البرمجية الكاملة (ZIP / Bundle)</span>
-                            </button>
-                          </div>
+
+                          {gate5Delivery ? (
+                            <div className="flex-1 flex flex-col space-y-3">
+                              <div className="flex items-center gap-1.5 flex-wrap text-xs">
+                                {([
+                                  { id: 'summary', label: 'ملخص الحزمة والملفات' },
+                                  { id: 'readme', label: 'README.md' },
+                                  { id: 'deployment', label: 'DEPLOYMENT.md' },
+                                  { id: 'env', label: '.env.example' },
+                                  { id: 'manifest', label: 'manifest.json' },
+                                ] as const).map(tab => (
+                                  <button
+                                    key={tab.id}
+                                    type="button"
+                                    onClick={() => setGate5ActiveDocTab(tab.id)}
+                                    className={`px-3 py-1.5 rounded-xl font-bold transition ${
+                                      gate5ActiveDocTab === tab.id ? 'bg-orange-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                                    }`}
+                                  >
+                                    {tab.label}
+                                  </button>
+                                ))}
+                              </div>
+
+                              {gate5ActiveDocTab === 'summary' && (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs flex-1">
+                                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                                    <div className="font-bold text-slate-900">محتويات أرشيف التسليم الموثقة</div>
+                                    <ul className="space-y-1 text-slate-700">
+                                      <li>• وثيقة المتطلبات المعتمدة (Gate 1 v{gate5Delivery.manifest.approvedGates.gate1Version})</li>
+                                      <li>• مخرجات التصميم والشاشات (Gate 2 v{gate5Delivery.manifest.approvedGates.gate2Version})</li>
+                                      <li>• الكود المصدري الكامل (Gate 3 v{gate5Delivery.manifest.approvedGates.gate3Version})</li>
+                                      <li>• شهادة فحص الجودة والأمان (Gate 4 v{gate5Delivery.manifest.approvedGates.gate4Version} • {gate5Delivery.manifest.qaScore}%)</li>
+                                      <li>• إجمالي الملفات المضمنة في الأرشيف: {gate5Delivery.includedFiles.length} ملف</li>
+                                    </ul>
+                                  </div>
+                                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2 max-h-60 overflow-y-auto">
+                                    <div className="font-bold text-slate-900">قائمة الملفات داخل الحزمة</div>
+                                    <ul className="space-y-1 font-mono text-[11px] text-slate-600" dir="ltr">
+                                      {gate5Delivery.includedFiles.map((f, i) => (
+                                        <li key={i}>✓ {f}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                </div>
+                              )}
+
+                              {gate5ActiveDocTab !== 'summary' && (
+                                <pre className="flex-1 min-h-[320px] bg-slate-950 text-emerald-400 font-mono text-xs rounded-2xl p-4 overflow-auto" dir="ltr">
+                                  {gate5ActiveDocTab === 'readme'
+                                    ? gate5Delivery.readmeMarkdown
+                                    : gate5ActiveDocTab === 'deployment'
+                                    ? gate5Delivery.deploymentGuideMarkdown
+                                    : gate5ActiveDocTab === 'env'
+                                    ? gate5Delivery.envExample
+                                    : JSON.stringify(gate5Delivery.manifest, null, 2)}
+                                </pre>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-xs text-slate-400">
+                              اضغط على الزر أعلاه لتوليد حزمة التسليم الكاملة وتجهيز ملف الـ ZIP للتحميل.
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
