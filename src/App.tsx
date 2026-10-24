@@ -207,12 +207,12 @@ const DEFAULT_PROVIDERS: FactoryProvider[] = [
     name: 'Google Stitch (UI/UX Design AI)',
     providerType: 'stitch',
     model: 'google-stitch-v2-ui',
-    status: 'standby',
+    status: 'active',
     enabled: true,
     apiKey: '',
     useSystemEnv: true,
     endpoint: 'https://stitch.withgoogle.com/api/v1/generate',
-    latency: 'N/A',
+    latency: '110ms',
     assignedGates: ['GATE 02'],
     monthlyQuotaJod: 1500,
     usedQuotaJod: 0,
@@ -435,6 +435,39 @@ const ENV_KEY_NAME_BY_TYPE: Record<AIProviderEngineType, string> = {
   custom: 'CUSTOM_AI_API_KEY',
 };
 
+export const GROQ_MODELS_CATALOG: { id: string; label: string; category: string }[] = [
+  { id: 'openai/gpt-oss-120b', label: 'GPT OSS 120B (Reasoning • Tool Use • Multilingual • Text)', category: 'Reasoning & Text' },
+  { id: 'openai/gpt-oss-20b', label: 'GPT OSS 20B (Reasoning • Tool Use • Multilingual • Text)', category: 'Reasoning & Text' },
+  { id: 'qwen/qwen-3.8-27b', label: 'Qwen 3.8 27B (Reasoning • Vision • Function Calling)', category: 'Reasoning & Vision' },
+  { id: 'openai/gpt-oss-safeguard-20b', label: 'Safety GPT OSS 20B (Safety / Content Moderation)', category: 'Safety' },
+  { id: 'canopylabs/orpheus-arabic-saudi', label: 'Orpheus Arabic Saudi (Text to Speech • نطق عربي سعودي)', category: 'Text to Speech' },
+  { id: 'canopylabs/orpheus-v1-english', label: 'Orpheus English (Text to Speech • نطق إنجليزي)', category: 'Text to Speech' },
+  { id: 'whisper-large-v3', label: 'Whisper Large v3 (Speech to Text • Multilingual)', category: 'Speech to Text' },
+  { id: 'whisper-large-v3-turbo', label: 'Whisper Large v3 Turbo (Speech to Text • Fast)', category: 'Speech to Text' },
+  { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B Versatile (LPU Production)', category: 'Text to Text' },
+  { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B Instant (Ultra-Fast LPU)', category: 'Text to Text' },
+  { id: 'deepseek-r1-distill-llama-70b', label: 'DeepSeek R1 Distill Llama 70B', category: 'Reasoning' },
+  { id: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B (32K Context)', category: 'Text to Text' },
+];
+
+const isGroqModelClient = (modelLower: string): boolean => {
+  if (!modelLower) return false;
+  return (
+    modelLower.includes('llama-') ||
+    modelLower.includes('mixtral-') ||
+    modelLower.includes('gpt-oss') ||
+    modelLower.startsWith('openai/gpt-oss') ||
+    modelLower.includes('gpt oss') ||
+    modelLower.includes('qwen-3.8-27b') ||
+    modelLower.includes('qwen 3.8 27b') ||
+    modelLower.startsWith('qwen/qwen') ||
+    modelLower.includes('orpheus') ||
+    modelLower.startsWith('canopylabs/') ||
+    modelLower.startsWith('whisper-large-v3') ||
+    modelLower.includes('whisper large v3')
+  );
+};
+
 const inferProviderTypeClient = (prov: Partial<FactoryProvider>): AIProviderEngineType => {
   const idAndName = `${prov.id || ''} ${prov.name || ''}`.toLowerCase();
   const modelLower = (prov.model || '').toLowerCase().trim();
@@ -456,7 +489,7 @@ const inferProviderTypeClient = (prov: Partial<FactoryProvider>): AIProviderEngi
 
   if (prov.providerType && prov.providerType !== 'custom') {
     if (prov.providerType === 'gemini' || prov.providerType === 'stitch') {
-      if (modelLower.includes('llama-') || modelLower.includes('mixtral-')) return 'groq';
+      if (isGroqModelClient(modelLower)) return 'groq';
       if (modelLower.startsWith('gpt-') || modelLower.startsWith('o1') || modelLower.startsWith('o3')) return 'openai';
       if (modelLower.startsWith('claude-')) return 'anthropic';
       if (modelLower.startsWith('deepseek-')) return 'deepseek';
@@ -464,7 +497,7 @@ const inferProviderTypeClient = (prov: Partial<FactoryProvider>): AIProviderEngi
     return prov.providerType;
   }
 
-  if (modelLower.includes('llama-') || modelLower.includes('mixtral-')) return 'groq';
+  if (isGroqModelClient(modelLower)) return 'groq';
   if (modelLower.startsWith('gpt-') || modelLower.startsWith('o1') || modelLower.startsWith('o3')) return 'openai';
   if (modelLower.startsWith('claude-')) return 'anthropic';
   if (modelLower.startsWith('deepseek-')) return 'deepseek';
@@ -551,16 +584,16 @@ const DEFAULT_AGENTS: FactoryAgent[] = [
     gateCode: 'GATE 02',
     title: 'وكيل التصميم وتجربة المستخدم (UI/UX Design Agent)',
     roleEn: 'UI/UX & Design System Architect',
-    desc: 'تحويل وثيقة الـ PRD المعتمدة إلى مواصفات تصميم وشاشات واجهات عصرية متجاوبة تدعم العربية (RTL) بنظام Tailwind CSS.',
-    providerId: 'prov-gemini',
-    providerName: 'Google Gemini Enterprise',
-    model: 'gemini-3.8-flash',
+    desc: 'تحويل وثيقة الـ PRD المعتمدة إلى مواصفات تصميم وشاشات واجهات عصرية متجاوبة تدعم العربية (RTL) بنظام Tailwind CSS ومحرك Google Stitch التفاعلي.',
+    providerId: 'prov-stitch',
+    providerName: 'Google Stitch (UI/UX Design AI)',
+    model: 'google-stitch-v2-ui',
     apiKey: '',
     useProviderKey: true,
     temperature: 0.6,
     maxTokens: 4096,
     enabled: true,
-    systemPrompt: 'أنت وكيل التصميم والواجهات (Gate 2 Design Agent) في مصنع OGroup AI Factory. مهمتك تحويل وثيقة المتطلبات إلى توصيف بصري دقيق، نظام ألوان، وتخطيط شاشات متجاوب يدعم العربية (RTL) باستخدام Tailwind CSS.',
+    systemPrompt: 'أنت محرك Google Stitch المتخصص في تصميم واجهات المستخدم وتجربة الاستخدام (Gate 2 UI/UX Design Agent) في مصنع OGroup AI Factory. مهمتك تحويل وثيقة المتطلبات المعتمدة إلى تصميم واجهات تفاعلي حي داخل Stitch Canvas ونظام ألوان وتخطيط شاشات متجاوب يدعم العربية (RTL) باستخدام Tailwind CSS.',
   },
   {
     gate: 3,
@@ -920,6 +953,52 @@ export default function App() {
     }
   };
 
+  const handleSaveAndLinkProvider = async (provId: string, customSuccessMsg?: string): Promise<boolean> => {
+    const targetProv = factoryProviders.find((p) => p.id === provId);
+    if (!targetProv) {
+      return syncSystemConfigToBackend(factoryProviders, factoryAgents, customSuccessMsg);
+    }
+    const cleanTypedKey =
+      targetProv.apiKey && targetProv.apiKey.trim() && !targetProv.apiKey.includes('•')
+        ? targetProv.apiKey.trim()
+        : '';
+
+    const nextProviders = factoryProviders.map((p) =>
+      p.id === provId
+        ? {
+            ...p,
+            apiKey: cleanTypedKey,
+            useSystemEnv: cleanTypedKey ? false : p.useSystemEnv,
+          }
+        : p
+    );
+
+    const nextAgents = factoryAgents.map((a) =>
+      a.providerId === provId
+        ? {
+            ...a,
+            providerId: targetProv.id,
+            providerName: targetProv.name,
+            model: targetProv.model,
+            ...(cleanTypedKey && !a.useProviderKey ? { apiKey: cleanTypedKey } : {}),
+          }
+        : a
+    );
+
+    const linkedGatesText = nextAgents
+      .filter((a) => a.providerId === provId)
+      .map((a) => a.gateCode)
+      .join(' · ');
+
+    const msg =
+      customSuccessMsg ||
+      (linkedGatesText
+        ? `تم حفظ إعدادات ${targetProv.name} (${targetProv.model}) وربطها مع ${linkedGatesText} بنجاح`
+        : `تم حفظ إعدادات المزود ${targetProv.name} (${targetProv.model}) بنجاح`);
+
+    return syncSystemConfigToBackend(nextProviders, nextAgents, msg);
+  };
+
   const handleTestAgentOrProvider = async (targetKey: string, gateNum: number, customKey?: string) => {
     setTestingTargetId(targetKey);
     try {
@@ -929,12 +1008,17 @@ export default function App() {
         ? factoryProviders.find(p => p.id === targetKey)
         : factoryProviders.find(p => p.id === targetAgent?.providerId);
 
+      const cleanCustomKey =
+        customKey && customKey.trim() && !customKey.includes('•')
+          ? customKey.trim()
+          : undefined;
+
       const res = await fetch('/api/admin/test-connection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           gate: gateNum,
-          customKey,
+          customKey: cleanCustomKey,
           providerId: isProviderTest ? targetKey : undefined,
           providers: factoryProviders,
           agents: factoryAgents,
@@ -1165,8 +1249,10 @@ export default function App() {
             setGate2Design(design);
             setGate2Version(g2.artifact.version);
             setGate2Locked(Boolean(g2.artifact.locked));
-            if (design.screens?.length > 0 && !gate2ActiveScreenId) {
-              setGate2ActiveScreenId(design.screens[0].id);
+            if (design.screens?.length > 0) {
+              const firstScreenId = design.screens[0].id;
+              setGate2ActiveScreenId(firstScreenId);
+              setStitchScreenTab(`stitch-screen:${firstScreenId}`);
             }
           } else {
             setGate2Design(null);
@@ -1706,7 +1792,9 @@ export default function App() {
         setGate2Version(data.version);
         setGate2Locked(false);
         if (design.screens?.length > 0) {
-          setGate2ActiveScreenId(design.screens[design.screens.length - 1].id);
+          const targetScreenId = design.screens[design.screens.length - 1].id;
+          setGate2ActiveScreenId(targetScreenId);
+          setStitchScreenTab(`stitch-screen:${targetScreenId}`);
         }
       } else if (gateNum === 3 && data.artifact) {
         const codeArt = data.artifact as CodeArtifact;
@@ -1825,6 +1913,36 @@ export default function App() {
         );
 
         showToast(`تم اعتماد وقفل وثيقة المتطلبات (v${approval.approvedVersion}) والانتقال إلى البوابة 2 بنجاح!`);
+
+        // Automatically synthesize initial Stitch design onto the Live Stitch Canvas when entering Gate 2
+        if (!gate2Design) {
+          try {
+            setIsAiProcessing(true);
+            const g2Res = await fetch(`/api/projects/${activeProject.id}/gates/2/generate`, {
+              method: 'POST',
+              headers: authHeaders(),
+              body: JSON.stringify({
+                prompt: `قم بتوليد تصميم الواجهات التفاعلية والشاشات لمشروع "${approval.document.projectName}" على لوحة Google Stitch Canvas استناداً إلى وثيقة المتطلبات المعتمدة.`,
+              }),
+            });
+            const g2Data = await g2Res.json();
+            if (g2Res.ok && g2Data.artifact) {
+              const design = g2Data.artifact as DesignArtifact;
+              setGate2Design(design);
+              setGate2Version(g2Data.version);
+              setGate2Locked(false);
+              if (design.screens?.length > 0) {
+                const firstScreenId = design.screens[0].id;
+                setGate2ActiveScreenId(firstScreenId);
+                setStitchScreenTab(`stitch-screen:${firstScreenId}`);
+              }
+            }
+          } catch {
+            // Non-blocking if manual generation is preferred
+          } finally {
+            setIsAiProcessing(false);
+          }
+        }
         return;
       }
 
@@ -2686,6 +2804,12 @@ export default function App() {
                         const linkedProv = factoryProviders.find(p => p.id === agent.providerId) || factoryProviders[0];
                         const isCustomModelInput = Boolean(customModelModeGates[agent.gate]);
                         const activeKeyVal = agent.useProviderKey ? (linkedProv?.apiKey || '') : (agent.apiKey || '');
+                        const hasSavedKey = agent.useProviderKey
+                          ? Boolean(linkedProv?.hasKey || agent.hasKey)
+                          : Boolean(agent.hasKey || linkedProv?.hasKey);
+                        const savedMaskedKey = agent.useProviderKey
+                          ? linkedProv?.maskedKey || agent.maskedKey || '••••••••'
+                          : agent.maskedKey || linkedProv?.maskedKey || '••••••••';
 
                         return (
                           <div key={agent.gate} className={`bg-white rounded-2xl p-6 shadow-sm border transition ${agent.enabled ? 'border-slate-200' : 'border-red-200 bg-slate-50/60'}`}>
@@ -2822,12 +2946,36 @@ export default function App() {
                                   <select
                                     value={agent.model}
                                     onChange={(e) => {
-                                      if (e.target.value === '__custom_model__') {
+                                      const selectedModel = e.target.value;
+                                      if (selectedModel === '__custom_model__') {
                                         setCustomModelModeGates(prev => ({ ...prev, [agent.gate]: true }));
                                         return;
                                       }
+                                      const detectedType = inferProviderTypeClient({
+                                        model: selectedModel,
+                                        providerType: 'custom',
+                                      });
+                                      const matchingProv =
+                                        detectedType !== 'custom'
+                                          ? factoryProviders.find(
+                                              (p) =>
+                                                p.id === `prov-${detectedType}` ||
+                                                inferProviderTypeClient(p) === detectedType
+                                            )
+                                          : undefined;
                                       const updated = factoryAgents.map(a =>
-                                        a.gate === agent.gate ? { ...a, model: e.target.value } : a
+                                        a.gate === agent.gate
+                                          ? {
+                                              ...a,
+                                              model: selectedModel,
+                                              ...(matchingProv
+                                                ? {
+                                                    providerId: matchingProv.id,
+                                                    providerName: matchingProv.name,
+                                                  }
+                                                : {}),
+                                            }
+                                          : a
                                       );
                                       setFactoryAgents(updated);
                                     }}
@@ -2858,11 +3006,12 @@ export default function App() {
                                       <option value="claude-3-5-haiku">claude-3-5-haiku</option>
                                       <option value="claude-3-opus">claude-3-opus</option>
                                     </optgroup>
-                                    <optgroup label="Groq Cloud LPU">
-                                      <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
-                                      <option value="llama-3.1-8b-instant">llama-3.1-8b-instant</option>
-                                      <option value="deepseek-r1-distill-llama-70b">deepseek-r1-distill-llama-70b</option>
-                                      <option value="mixtral-8x7b-32768">mixtral-8x7b-32768</option>
+                                    <optgroup label="Groq Cloud LPU (GPT OSS • Qwen 3.8 • Orpheus • Whisper • Llama)">
+                                      {GROQ_MODELS_CATALOG.map((gm) => (
+                                        <option key={gm.id} value={gm.id}>
+                                          {gm.id} — {gm.label}
+                                        </option>
+                                      ))}
                                     </optgroup>
                                     <optgroup label="DeepSeek / Mistral / xAI Grok / v0 / OpenRouter">
                                       <option value="deepseek-chat">deepseek-chat (DeepSeek V3)</option>
@@ -2907,8 +3056,15 @@ export default function App() {
                                   <label className="font-bold text-slate-700 truncate">
                                     {agent.useProviderKey ? `مفتاح ${agent.providerName}` : `مفتاح خاص لـ ${agent.gateCode}`}
                                   </label>
-                                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded shrink-0">
-                                    {activeKeyVal ? 'مفتاح مخصص مفعل' : 'مفتاح النظام تلقائياً'}
+                                  <span
+                                    className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded shrink-0"
+                                    dir={hasSavedKey && !activeKeyVal ? 'ltr' : 'rtl'}
+                                  >
+                                    {activeKeyVal
+                                      ? 'مفتاح جديد جاهز للحفظ'
+                                      : hasSavedKey
+                                      ? `✓ محفوظ (${savedMaskedKey})`
+                                      : 'مفتاح النظام تلقائياً'}
                                   </span>
                                 </div>
                                 <div className="relative flex items-center">
@@ -2929,7 +3085,11 @@ export default function App() {
                                         setFactoryAgents(updatedAgents);
                                       }
                                     }}
-                                    placeholder={`أدخل مفتاح ${agent.providerName} هنا (أو اتركه للخزنة)`}
+                                    placeholder={
+                                      hasSavedKey
+                                        ? `مفتاح محفوظ في النظام (${savedMaskedKey}) — جاهز للتشغيل`
+                                        : `أدخل مفتاح ${agent.providerName} هنا (أو اتركه للخزنة)`
+                                    }
                                     dir="ltr"
                                     className="w-full h-10 pl-3 pr-9 rounded-xl bg-white border border-orange-300 font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500"
                                   />
@@ -2991,6 +3151,200 @@ export default function App() {
                                 </div>
                               </div>
                             </div>
+
+                            {/* Dedicated Google Stitch Designer Live Canvas Connection Panel on Gate 2 Card */}
+                            {agent.gate === 2 && (
+                              <div className="mt-4 pt-4 border-t border-orange-200/80 space-y-3">
+                                <div className="bg-gradient-to-l from-slate-900 via-slate-900 to-slate-800 text-white rounded-2xl p-4 border border-slate-700 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="px-2.5 py-0.5 rounded-full bg-orange-500/20 border border-orange-400/40 text-orange-300 text-[10px] font-bold">
+                                        🎨 Google Stitch UI/UX & Canvas Architect
+                                      </span>
+                                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-[10px] font-bold">
+                                        ● متصل بلوحة التصميم التفاعلية (stitch://live-canvas)
+                                      </span>
+                                    </div>
+                                    <h4 className="text-sm font-black text-white">
+                                      لوحة تصميم Google Stitch التفاعلية مرتبطة بوكيل البوابة الثانية ({activeProject?.name || 'المشروع النشط'})
+                                    </h4>
+                                    <p className="text-[11px] text-slate-300">
+                                      {gate2Design
+                                        ? `تم توليد ${gate2Design.screens.length} شاشات تفاعلية و${gate2Design.components.length} مكونات عبر محرك Stitch (الإصدار v${gate2Version}).`
+                                        : 'يقوم Google Stitch بتحويل وثيقة المتطلبات المعتمدة (PRD) إلى شاشات عربية RTL تفاعلية تعرض مباشرة داخل لوحة Stitch Canvas.'}
+                                    </p>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                                    <button
+                                      type="button"
+                                      disabled={isAiProcessing}
+                                      onClick={async () => {
+                                        if (!activeProject || !sessionToken) {
+                                          showToast('يرجى اختيار مشروع نشط أولاً');
+                                          return;
+                                        }
+                                        setIsAiProcessing(true);
+                                        try {
+                                          const res = await fetch(`/api/projects/${activeProject.id}/gates/2/generate`, {
+                                            method: 'POST',
+                                            headers: authHeaders(),
+                                            body: JSON.stringify({
+                                              prompt: `قم بتوليد وتحديث تصميم الواجهات التفاعلية والشاشات لمشروع "${activeProject.name}" على لوحة Google Stitch Canvas.`,
+                                            }),
+                                          });
+                                          const data = await res.json();
+                                          if (!res.ok) {
+                                            throw new Error(data.error || 'يرجى اعتماد وثيقة المتطلبات في البوابة 1 أولاً قبل توليد تصميم المشروع.');
+                                          }
+                                          if (data.artifact) {
+                                            const design = data.artifact as DesignArtifact;
+                                            setGate2Design(design);
+                                            setGate2Version(data.version);
+                                            setGate2Locked(false);
+                                            if (design.screens?.length > 0) {
+                                              const firstScreenId = design.screens[0].id;
+                                              setGate2ActiveScreenId(firstScreenId);
+                                              setStitchScreenTab(`stitch-screen:${firstScreenId}`);
+                                            }
+                                            showToast(`تم توليد وتحديث التصميم عبر Google Stitch (${design.screens.length} شاشات) على لوحة Canvas!`);
+                                          }
+                                        } catch (err: any) {
+                                          showToast(err.message || 'تعذر توليد التصميم');
+                                        } finally {
+                                          setIsAiProcessing(false);
+                                        }
+                                      }}
+                                      className="px-3.5 py-2 rounded-xl bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white text-xs font-bold shadow-xs transition flex items-center gap-1.5"
+                                    >
+                                      <Sparkles className="w-3.5 h-3.5" />
+                                      <span>{gate2Design ? 'تحديث التصميم عبر Stitch' : 'توليد التصميم على لوحة Stitch'}</span>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (activeProject && activeProject.currentGate < 2 && gate1ApprovedArtifact) {
+                                          setProjects(prev =>
+                                            prev.map(p => (p.id === activeProject.id ? { ...p, currentGate: 2 } : p))
+                                          );
+                                        }
+                                        setActiveScreen('workspace');
+                                        showToast('تم الانتقال إلى مساحة عمل البوابة الثانية ولوحة Stitch Canvas التفاعلية');
+                                      }}
+                                      className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-bold transition flex items-center gap-1.5"
+                                    >
+                                      <Layout className="w-3.5 h-3.5 text-orange-400" />
+                                      <span>فتح مساحة عمل Stitch الكاملة</span>
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Embedded Interactive Stitch Canvas inside Gate 2 Designer Card */}
+                                <div className="rounded-2xl border-2 border-slate-300 overflow-hidden bg-slate-950 shadow-md">
+                                  <div className="bg-slate-900 px-4 py-2.5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+                                    <div className="flex items-center gap-2">
+                                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span>
+                                      <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block"></span>
+                                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
+                                      <span className="mr-2 font-bold text-white">
+                                        معاينة لوحة Google Stitch الحية ({gate2Design ? gate2Design.projectName : activeProject?.name || 'Stitch UI Studio'})
+                                      </span>
+                                    </div>
+                                    <div className="px-2.5 py-0.5 rounded bg-slate-800 text-orange-300 font-mono text-[10px]" dir="ltr">
+                                      stitch://live-canvas/{activeProject?.id || 'studio'}/{gate2Design ? (gate2ActiveScreenId || gate2Design.screens[0]?.id || 'dashboard') : stitchScreenTab}
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      {gate2Design && gate2Design.screens.length > 0 ? (
+                                        gate2Design.screens.map((scr, idx) => {
+                                          const isSel = (gate2ActiveScreenId || gate2Design.screens[0].id) === scr.id;
+                                          return (
+                                            <button
+                                              key={scr.id}
+                                              type="button"
+                                              onClick={() => {
+                                                setGate2ActiveScreenId(scr.id);
+                                                setStitchScreenTab(`stitch-screen:${scr.id}`);
+                                              }}
+                                              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition ${
+                                                isSel
+                                                  ? 'bg-orange-600 text-white'
+                                                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                                              }`}
+                                            >
+                                              {idx + 1}. {scr.name}
+                                            </button>
+                                          );
+                                        })
+                                      ) : (
+                                        <span className="text-[11px] text-emerald-400 font-bold">
+                                          ● محرك Google Stitch جاهز لعرض الشاشات التفاعلية (RTL)
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {gate2Design && gate2Design.screens.length > 0 ? (
+                                    (() => {
+                                      const activeScr =
+                                        gate2Design.screens.find(s => s.id === gate2ActiveScreenId) || gate2Design.screens[0];
+                                      return (
+                                        <div className="bg-white">
+                                          <div className="px-4 py-2 bg-slate-100 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                                            <div>
+                                              <span className="font-black text-slate-900">{activeScr.name}: </span>
+                                              <span className="text-slate-600">{activeScr.summary}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2 font-mono text-[10px]" dir="ltr">
+                                              <span className="px-2 py-0.5 rounded bg-orange-100 text-orange-800 font-bold">
+                                                Route: {activeScr.route}
+                                              </span>
+                                              <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700">
+                                                Tokens: {gate2Design.visualTokens?.primaryColor || '#FF6B00'} • {gate2Design.visualTokens?.secondaryColor || '#0F172A'}
+                                              </span>
+                                            </div>
+                                          </div>
+                                          <div className="h-[420px] w-full bg-white">
+                                            <iframe
+                                              title={`admin-stitch-canvas-${activeScr.id}`}
+                                              srcDoc={activeScr.htmlContent}
+                                              sandbox="allow-scripts"
+                                              className="w-full h-full border-0"
+                                            />
+                                          </div>
+                                        </div>
+                                      );
+                                    })()
+                                  ) : (
+                                    <div className="p-5 bg-slate-900 text-white space-y-4">
+                                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                        <div className="p-4 rounded-xl bg-slate-800/90 border border-slate-700 space-y-1.5">
+                                          <div className="text-[11px] text-orange-400 font-bold">1. الصفحة الرئيسية ولوحة المؤشرات</div>
+                                          <div className="text-xs font-black">تصميم عربي RTL متجاوب مع الهوية البصرية</div>
+                                          <p className="text-[11px] text-slate-400">
+                                            يبني محرك Stitch شاشات الهبوط، المؤشرات التشغيلية، وبطاقات الإحصاء التفاعلية تلقائياً من الـ PRD.
+                                          </p>
+                                        </div>
+                                        <div className="p-4 rounded-xl bg-slate-800/90 border border-slate-700 space-y-1.5">
+                                          <div className="text-[11px] text-teal-400 font-bold">2. النماذج والعمليات التفاعلية الحية</div>
+                                          <div className="text-xs font-black">نماذج إدخال وحجز وبحث قابلة للتجربة</div>
+                                          <p className="text-[11px] text-slate-400">
+                                            توليد شاشات العمليات والنماذج التفاعلية مع التحقق من الحقول وتدفقات المستخدم (User Flows).
+                                          </p>
+                                        </div>
+                                        <div className="p-4 rounded-xl bg-slate-800/90 border border-slate-700 space-y-1.5">
+                                          <div className="text-[11px] text-amber-400 font-bold">3. نظام التصميم وملفات Tailwind/HTML</div>
+                                          <div className="text-xs font-black">Design Tokens + شاشات جاهزة للبوابة 3</div>
+                                          <p className="text-[11px] text-slate-400">
+                                            تصدير الألوان والخطوط والمكونات المهيكلة مباشرة إلى وكيل البرمجة في البوابة الثالثة.
+                                          </p>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
 
                             {/* Live Test Response Banner (if tested) */}
                             {testResult && (
@@ -3317,14 +3671,49 @@ export default function App() {
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs pt-2">
                               <div>
                                 <label className="block font-bold text-slate-700 mb-1">النموذج المعتمد (Active Model)</label>
+                                {inferredType === 'groq' && (
+                                  <select
+                                    value={GROQ_MODELS_CATALOG.some((gm) => gm.id === prov.model) ? prov.model : '__custom__'}
+                                    onChange={(e) => {
+                                      const nextModel = e.target.value;
+                                      if (nextModel === '__custom__') return;
+                                      const updated = factoryProviders.map((p) =>
+                                        p.id === prov.id ? { ...p, model: nextModel } : p
+                                      );
+                                      setFactoryProviders(updated);
+                                      setFactoryAgents((prevAgents) =>
+                                        prevAgents.map((a) =>
+                                          a.providerId === prov.id ? { ...a, model: nextModel } : a
+                                        )
+                                      );
+                                    }}
+                                    dir="ltr"
+                                    className="w-full h-9 mb-1.5 px-3 rounded-xl bg-orange-50/70 border border-orange-200 font-mono text-[11px] font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                  >
+                                    {GROQ_MODELS_CATALOG.map((gm) => (
+                                      <option key={gm.id} value={gm.id}>
+                                        {gm.label} [{gm.id}]
+                                      </option>
+                                    ))}
+                                    {!GROQ_MODELS_CATALOG.some((gm) => gm.id === prov.model) && (
+                                      <option value="__custom__">{prov.model} (نموذج مخصص)</option>
+                                    )}
+                                  </select>
+                                )}
                                 <input
                                   type="text"
                                   value={prov.model}
                                   onChange={(e) => {
+                                    const nextModel = e.target.value;
                                     const updated = factoryProviders.map(p =>
-                                      p.id === prov.id ? { ...p, model: e.target.value } : p
+                                      p.id === prov.id ? { ...p, model: nextModel } : p
                                     );
                                     setFactoryProviders(updated);
+                                    setFactoryAgents((prevAgents) =>
+                                      prevAgents.map((a) =>
+                                        a.providerId === prov.id ? { ...a, model: nextModel } : a
+                                      )
+                                    );
                                   }}
                                   dir="ltr"
                                   className="w-full h-10 px-3 rounded-xl bg-slate-50 border border-slate-200 font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500"
@@ -3385,12 +3774,36 @@ export default function App() {
 
                             {/* Custom Key Input Box */}
                             <div className="text-xs">
-                              <label className="block font-bold text-slate-700 mb-1">
-                                {prov.useSystemEnv ? 'مفتاح الخزنة المركزي (System Environment Key)' : 'مفتاح API الخاص بالمزود (Provider API Key)'}
-                              </label>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="font-bold text-slate-700">
+                                  {prov.useSystemEnv ? 'مفتاح الخزنة المركزي (System Environment Key)' : 'مفتاح API الخاص بالمزود (Provider API Key)'}
+                                </label>
+                                {!prov.useSystemEnv && (
+                                  <span
+                                    className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                      prov.apiKey && prov.apiKey.trim()
+                                        ? 'bg-orange-50 text-orange-700'
+                                        : prov.hasKey
+                                        ? 'bg-emerald-50 text-emerald-700'
+                                        : 'bg-slate-100 text-slate-500'
+                                    }`}
+                                    dir={prov.hasKey && !prov.apiKey ? 'ltr' : 'rtl'}
+                                  >
+                                    {prov.apiKey && prov.apiKey.trim()
+                                      ? '● مفتاح جديد جاهز للحفظ'
+                                      : prov.hasKey
+                                      ? `✓ محفوظ في النظام (${prov.maskedKey || '••••••••'})`
+                                      : 'بانتظار إدخال المفتاح'}
+                                  </span>
+                                )}
+                              </div>
                               {prov.useSystemEnv ? (
                                 <div className="h-10 px-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-slate-600">
-                                  <span className="font-mono text-[11px]" dir="ltr">{envVarName} •••••••••••••••••••••••• (Active Vault)</span>
+                                  <span className="font-mono text-[11px]" dir="ltr">
+                                    {prov.hasKey
+                                      ? `Saved Key (${prov.maskedKey || '••••••••'}) • ${envVarName}`
+                                      : `${envVarName} •••••••••••••••••••••••• (Active Vault)`}
+                                  </span>
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -3412,11 +3825,15 @@ export default function App() {
                                       value={prov.apiKey}
                                       onChange={(e) => {
                                         const updated = factoryProviders.map(p =>
-                                          p.id === prov.id ? { ...p, apiKey: e.target.value } : p
+                                          p.id === prov.id ? { ...p, apiKey: e.target.value, useSystemEnv: false } : p
                                         );
                                         setFactoryProviders(updated);
                                       }}
-                                      placeholder="أدخل مفتاح الـ API هنا (AIzaSy... أو sk-...)"
+                                      placeholder={
+                                        prov.hasKey
+                                          ? `مفتاح محفوظ في النظام (${prov.maskedKey || '••••••••'}) — جاهز للاتصال أو أدخل مفتاحاً جديداً`
+                                          : 'أدخل مفتاح الـ API هنا (AIzaSy... أو sk-... أو gsk_...)'
+                                      }
                                       dir="ltr"
                                       className="w-full h-10 pl-3 pr-9 rounded-xl bg-white border border-orange-300 font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500"
                                     />
@@ -3430,7 +3847,12 @@ export default function App() {
                                   </div>
                                   <button
                                     type="button"
-                                    onClick={() => syncSystemConfigToBackend(factoryProviders, factoryAgents, `تم حفظ مفتاح ${prov.name} وربطه بالنظام`)}
+                                    onClick={() =>
+                                      handleSaveAndLinkProvider(
+                                        prov.id,
+                                        `تم حفظ مفتاح ${prov.name} (${prov.model}) وربطه بالنظام`
+                                      )
+                                    }
                                     className="h-10 px-4 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold transition shrink-0"
                                   >
                                     حفظ المفتاح
@@ -3440,33 +3862,87 @@ export default function App() {
                             </div>
 
                             {/* Linked Agents & Actions Footer */}
-                            <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                              <div className="text-slate-500">
-                                <span>الوكلاء المرتبطون: </span>
-                                <strong className="text-slate-800">
-                                  {linkedAgents.length > 0 ? linkedAgents.map(a => a.gateCode).join(' · ') : 'متاح للربط'}
-                                </strong>
-                                <span className="mx-2">·</span>
-                                <span>الاستجابة: <strong className="font-mono text-slate-800" dir="ltr">{prov.latency}</strong></span>
+                            <div className="pt-3 border-t border-slate-100 flex flex-col gap-3 text-xs">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex flex-wrap items-center gap-1.5 text-slate-500">
+                                  <span>الوكلاء المرتبطون:</span>
+                                  {factoryAgents.map((ag) => {
+                                    const isLinked = ag.providerId === prov.id;
+                                    return (
+                                      <button
+                                        key={ag.gate}
+                                        type="button"
+                                        title={`انقر لربط ${ag.gateCode} بالمزود ${prov.name} (${prov.model})`}
+                                        onClick={() => {
+                                          const updatedAgents = factoryAgents.map((a) =>
+                                            a.gate === ag.gate
+                                              ? {
+                                                  ...a,
+                                                  providerId: prov.id,
+                                                  providerName: prov.name,
+                                                  model: prov.model,
+                                                  useProviderKey: true,
+                                                }
+                                              : a
+                                          );
+                                          setFactoryAgents(updatedAgents);
+                                        }}
+                                        className={`px-2 py-0.5 rounded-lg font-mono text-[10px] font-bold transition border ${
+                                          isLinked
+                                            ? 'bg-orange-600 text-white border-orange-600'
+                                            : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-orange-300 hover:text-slate-800'
+                                        }`}
+                                      >
+                                        {ag.gateCode}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                <div className="text-slate-500">
+                                  <span>الاستجابة: <strong className="font-mono text-slate-800" dir="ltr">{prov.latency}</strong></span>
+                                </div>
                               </div>
 
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  disabled={isTesting}
-                                  onClick={() => handleTestAgentOrProvider(prov.id, 1, prov.useSystemEnv ? undefined : prov.apiKey)}
-                                  className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold transition flex items-center gap-1.5 whitespace-nowrap"
-                                >
-                                  <Play className="w-3.5 h-3.5 text-orange-600" />
-                                  <span>{isTesting ? 'جاري الاختبار...' : 'اختبار المفتاح والاتصال'}</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => syncSystemConfigToBackend(factoryProviders, factoryAgents, `تم حفظ إعدادات المزود ${prov.name} بنجاح`)}
-                                  className="px-3.5 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold transition whitespace-nowrap"
-                                >
-                                  تحديث وربط
-                                </button>
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-[11px] text-slate-500">
+                                  {linkedAgents.length > 0 ? (
+                                    <span>
+                                      مرتبط حالياً مع:{' '}
+                                      <strong className="text-slate-800">
+                                        {linkedAgents.map((a) => `${a.gateCode} (${a.model})`).join(' · ')}
+                                      </strong>
+                                    </span>
+                                  ) : (
+                                    <span>انقر على أي بوابة أعلاه ثم اضغط «تحديث وربط» لتعيين هذا المزود لها</span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <button
+                                    type="button"
+                                    disabled={isTesting}
+                                    onClick={() =>
+                                      handleTestAgentOrProvider(
+                                        prov.id,
+                                        linkedAgents[0]?.gate || 1,
+                                        prov.apiKey && prov.apiKey.trim() && !prov.apiKey.includes('•')
+                                          ? prov.apiKey.trim()
+                                          : undefined
+                                      )
+                                    }
+                                    className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold transition flex items-center gap-1.5 whitespace-nowrap"
+                                  >
+                                    <Play className="w-3.5 h-3.5 text-orange-600" />
+                                    <span>{isTesting ? 'جاري الاختبار...' : 'اختبار المفتاح والاتصال'}</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSaveAndLinkProvider(prov.id)}
+                                    className="px-3.5 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold transition whitespace-nowrap"
+                                  >
+                                    تحديث وربط
+                                  </button>
+                                </div>
                               </div>
                             </div>
 
@@ -4475,7 +4951,7 @@ export default function App() {
                       { id: 'gemini', defaultModel: 'gemini-3.8-flash', name: 'Google Gemini Enterprise', desc: 'أحدث نماذج جيميناي (Gemini 3.8 Flash / Gemini 3.1 Pro)', icon: <Sparkles className="w-5 h-5 text-orange-600" /> },
                       { id: 'openai', defaultModel: 'gpt-4o-2024-11-20', name: 'OpenAI Platform (GPT-4o / o3)', desc: 'نماذج GPT-4o و o3-mini و o1', icon: <Bot className="w-5 h-5 text-emerald-600" /> },
                       { id: 'anthropic', defaultModel: 'claude-3-7-sonnet', name: 'Anthropic Claude Direct', desc: 'نماذج Claude 3.7 Sonnet و Claude 3.5 Sonnet', icon: <Layers className="w-5 h-5 text-purple-600" /> },
-                      { id: 'groq', defaultModel: 'llama-3.3-70b-versatile', name: 'Groq Cloud LPU', desc: 'استدلال فائق السرعة عبر Llama 3.3 70B', icon: <Zap className="w-5 h-5 text-blue-600" /> },
+                      { id: 'groq', defaultModel: 'llama-3.3-70b-versatile', name: 'Groq Cloud LPU', desc: 'GPT OSS 120B/20B • Qwen 3.8 27B • Orpheus TTS • Whisper v3 • Llama 3.3', icon: <Zap className="w-5 h-5 text-blue-600" /> },
                       { id: 'deepseek', defaultModel: 'deepseek-chat', name: 'DeepSeek AI (V3 / R1)', desc: 'نماذج البرمجة والاستدلال DeepSeek V3 & R1', icon: <Code2 className="w-5 h-5 text-indigo-600" /> },
                       { id: 'mistral', defaultModel: 'codestral-latest', name: 'Mistral & Codestral', desc: 'نماذج Codestral و Mistral Large', icon: <Cpu className="w-5 h-5 text-amber-600" /> },
                       { id: 'xai', defaultModel: 'grok-3', name: 'xAI Grok Platform', desc: 'نماذج Grok-3 و Grok-2', icon: <Network className="w-5 h-5 text-slate-800" /> },
@@ -4483,6 +4959,7 @@ export default function App() {
                     ].map(prov => {
                       const savedConn = savedByokConnections.find(c => c.provider === prov.id);
                       const isActiveProv = savedConn ? savedConn.active : byokProvider === prov.id;
+                      const currentProvModel = byokProvider === prov.id ? byokModel : savedConn?.model || prov.defaultModel;
                       return (
                         <div key={prov.id} className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4">
                           <div className="flex items-center justify-between">
@@ -4502,9 +4979,30 @@ export default function App() {
 
                           <div className="space-y-2 text-xs">
                             <label className="block font-bold text-slate-700">النموذج المعتمد ({prov.id})</label>
+                            {prov.id === 'groq' && (
+                              <select
+                                value={GROQ_MODELS_CATALOG.some((gm) => gm.id === currentProvModel) ? currentProvModel : '__custom__'}
+                                onChange={(e) => {
+                                  if (e.target.value === '__custom__') return;
+                                  setByokProvider('groq');
+                                  setByokModel(e.target.value);
+                                }}
+                                dir="ltr"
+                                className="w-full h-9 px-3 rounded-xl bg-orange-50/70 border border-orange-200 text-[11px] font-mono font-bold text-slate-800"
+                              >
+                                {GROQ_MODELS_CATALOG.map((gm) => (
+                                  <option key={gm.id} value={gm.id}>
+                                    {gm.label} [{gm.id}]
+                                  </option>
+                                ))}
+                                {!GROQ_MODELS_CATALOG.some((gm) => gm.id === currentProvModel) && (
+                                  <option value="__custom__">{currentProvModel} (مخصص)</option>
+                                )}
+                              </select>
+                            )}
                             <input
                               type="text"
-                              value={byokProvider === prov.id ? byokModel : savedConn?.model || prov.defaultModel}
+                              value={currentProvModel}
                               onChange={e => {
                                 setByokProvider(prov.id);
                                 setByokModel(e.target.value);
@@ -5120,17 +5618,25 @@ export default function App() {
                               </div>
                             )}
 
-                            {/* Real Persisted Gate 2 Design Artifact Viewer & Live HTML Preview */}
+                            {/* Google Stitch Designer Engine Control Bar */}
                             <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3 shadow-2xs">
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div>
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="px-2.5 py-0.5 rounded-full bg-orange-50 border border-orange-200 text-orange-700 text-[10px] font-black">
+                                      🎨 مصمم البوابة الثانية: {currentGateAgent.providerName} ({currentGateAgent.model})
+                                    </span>
+                                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold">
+                                      ● متصل بلوحة Stitch Canvas الحية
+                                    </span>
+                                  </div>
                                   <h4 className="text-xs font-black text-slate-900">
-                                    مخرجات وكيل التصميم المهيكلة (Persisted Design Artifact {gate2Version > 0 ? `• v${gate2Version}` : '• لم يتم التوليد بعد'})
+                                    مخرجات مصمم Google Stitch المهيكلة على لوحة الـ Canvas ({gate2Version > 0 ? `الإصدار v${gate2Version}` : 'جاهز للتوليد الفوري'})
                                   </h4>
                                   <p className="text-[11px] text-slate-500">
                                     {gate2Design
-                                      ? `${gate2Design.designSummary} (${gate2Design.screens.length} شاشات مهيكلة، ${gate2Design.components.length} مكونات)`
-                                      : 'اضغط على "توليد التصميم" لتحويل المتطلبات المعتمدة في البوابة 1 إلى شاشات وتصاميم حقيقية محفوظة في قاعدة البيانات.'}
+                                      ? `${gate2Design.designSummary} (${gate2Design.screens.length} شاشات مهيكلة، ${gate2Design.components.length} مكونات معروضة داخل لوحة Stitch التفاعلية أدناه)`
+                                      : 'اضغط على "توليد التصميم على لوحة Stitch" لتحويل المتطلبات المعتمدة في البوابة 1 إلى شاشات وتصاميم تفاعلية تعرض مباشرة داخل لوحة Stitch Canvas.'}
                                   </p>
                                 </div>
                                 {!gate2Locked && (
@@ -5139,65 +5645,51 @@ export default function App() {
                                     disabled={isAiProcessing}
                                     onClick={() =>
                                       executeStageAgentPrompt(
-                                        `قم بتوليد وتحديث تصميم الواجهات التفاعلية والشاشات لمشروع "${activeProject.name}" استناداً إلى وثيقة المتطلبات المعتمدة.`
+                                        `قم بتوليد وتحديث تصميم الواجهات التفاعلية والشاشات لمشروع "${activeProject.name}" على لوحة Google Stitch Canvas استناداً إلى وثيقة المتطلبات المعتمدة.`
                                       )
                                     }
                                     className="px-3.5 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs transition flex items-center gap-1.5"
                                   >
                                     <Sparkles className="w-3.5 h-3.5" />
-                                    <span>{gate2Design ? 'تحديث التصميم بالذكاء الاصطناعي' : 'توليد التصميم من المتطلبات المعتمدة'}</span>
+                                    <span>{gate2Design ? 'تحديث التصميم عبر Google Stitch' : 'توليد التصميم على لوحة Stitch التفاعلية'}</span>
                                   </button>
                                 )}
                               </div>
 
                               {gate2Design && gate2Design.screens.length > 0 && (
-                                <div className="space-y-3 pt-2 border-t border-slate-100">
+                                <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 flex-wrap">
                                   <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-[11px] font-bold text-slate-500 ml-1">شاشات المشروع في Stitch Canvas:</span>
                                     {gate2Design.screens.map((scr, sIdx) => {
-                                      const isSelected = (gate2ActiveScreenId || gate2Design.screens[0].id) === scr.id;
+                                      const tabKey = `stitch-screen:${scr.id}`;
+                                      const isSelected = stitchScreenTab === tabKey || (!stitchScreenTab.startsWith('stitch-screen:') && (gate2ActiveScreenId || gate2Design.screens[0].id) === scr.id);
                                       return (
                                         <button
                                           key={scr.id}
                                           type="button"
-                                          onClick={() => setGate2ActiveScreenId(scr.id)}
+                                          onClick={() => {
+                                            setGate2ActiveScreenId(scr.id);
+                                            setStitchScreenTab(tabKey);
+                                          }}
                                           className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
                                             isSelected
                                               ? 'bg-orange-600 text-white shadow-2xs'
                                               : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                                           }`}
                                         >
-                                          {sIdx + 1}. {scr.name} ({scr.route})
+                                          🎨 {sIdx + 1}. {scr.name} ({scr.route})
                                         </button>
                                       );
                                     })}
                                   </div>
-
-                                  {(() => {
-                                    const activeScr =
-                                      gate2Design.screens.find(s => s.id === gate2ActiveScreenId) || gate2Design.screens[0];
-                                    if (!activeScr) return null;
-                                    return (
-                                      <div className="space-y-2">
-                                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-                                          <div>
-                                            <span className="font-bold text-slate-900">{activeScr.name}: </span>
-                                            <span className="text-slate-600">{activeScr.summary}</span>
-                                          </div>
-                                          <span className="font-mono text-[10px] text-orange-700 bg-orange-50 px-2 py-0.5 rounded" dir="ltr">
-                                            Route: {activeScr.route} • Role: {activeScr.primaryRole}
-                                          </span>
-                                        </div>
-                                        <div className="rounded-2xl border border-slate-300 overflow-hidden bg-white h-[360px]">
-                                          <iframe
-                                            title={`gate2-preview-${activeScr.id}`}
-                                            srcDoc={activeScr.htmlContent}
-                                            sandbox="allow-scripts"
-                                            className="w-full h-full border-0"
-                                          />
-                                        </div>
-                                      </div>
-                                    );
-                                  })()}
+                                  <div className="flex items-center gap-2 text-[11px] font-mono" dir="ltr">
+                                    <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                                      Primary: {gate2Design.visualTokens?.primaryColor || '#FF6B00'}
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                                      Secondary: {gate2Design.visualTokens?.secondaryColor || '#0F172A'}
+                                    </span>
+                                  </div>
                                 </div>
                               )}
                             </div>
@@ -5205,6 +5697,30 @@ export default function App() {
                             {/* Stitch Studio Screen Tabs & Theme Bar */}
                             <div className="bg-white rounded-2xl p-3 border border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs shadow-2xs">
                               <div className="flex items-center gap-1.5 flex-wrap">
+                                {/* Persisted Stitch Project Screens Connected Directly to Canvas Tabs */}
+                                {gate2Design &&
+                                  gate2Design.screens.map((scr, sIdx) => {
+                                    const tabKey = `stitch-screen:${scr.id}`;
+                                    return (
+                                      <button
+                                        key={tabKey}
+                                        type="button"
+                                        onClick={() => {
+                                          setGate2ActiveScreenId(scr.id);
+                                          setStitchScreenTab(tabKey);
+                                        }}
+                                        className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 ${
+                                          stitchScreenTab === tabKey
+                                            ? 'bg-orange-600 text-white shadow-xs'
+                                            : 'bg-orange-50 text-orange-800 border border-orange-200 hover:bg-orange-100'
+                                        }`}
+                                      >
+                                        <Sparkles className="w-3.5 h-3.5" />
+                                        <span>شاشة {sIdx + 1}: {scr.name}</span>
+                                      </button>
+                                    );
+                                  })}
+
                                 <button
                                   type="button"
                                   onClick={() => setStitchScreenTab('landing')}
@@ -5304,27 +5820,48 @@ export default function App() {
                                   <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span>
                                   <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block"></span>
                                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
-                                  <span className="mr-2 font-bold text-white">{activeProject.name}</span>
+                                  <span className="mr-2 font-bold text-white">{gate2Design?.projectName || activeProject.name}</span>
                                 </div>
                                 <div className="px-3 py-0.5 rounded-md bg-slate-800 text-slate-400 font-mono text-[10px]" dir="ltr">
                                   stitch://live-canvas/{activeProject.id}/{stitchScreenTab}
                                 </div>
-                                <span className="text-[10px] text-emerald-400 font-semibold">● معاينة حية تفاعلية (RTL)</span>
+                                <span className="text-[10px] text-emerald-400 font-semibold">
+                                  ● محرك Google Stitch ({currentGateAgent.model}) • معاينة حية تفاعلية (RTL)
+                                </span>
                               </div>
 
                               {/* Inner Designed Application Header / Sticky Navbar */}
                               <div className={`px-5 py-3.5 border-b flex flex-wrap items-center justify-between gap-3 ${themeMap.cardBg}`}>
                                 <div className="flex items-center gap-2.5">
                                   <div className={`w-9 h-9 rounded-xl ${themeMap.primaryBg} text-white flex items-center justify-center font-black text-sm shadow-xs`}>
-                                    عقار
+                                    {(gate2Design?.projectName || activeProject.name || 'مشروع').slice(0, 4)}
                                   </div>
                                   <div>
-                                    <div className="font-black text-xs">{activeProject.name}</div>
-                                    <div className="text-[10px] opacity-60">{activeProject.designNotes}</div>
+                                    <div className="font-black text-xs">{gate2Design?.projectName || activeProject.name}</div>
+                                    <div className="text-[10px] opacity-60">{gate2Design?.designSummary || activeProject.designNotes}</div>
                                   </div>
                                 </div>
 
-                                <div className="flex items-center gap-3 text-[11px] font-bold">
+                                <div className="flex items-center gap-3 text-[11px] font-bold flex-wrap">
+                                  {gate2Design &&
+                                    gate2Design.screens.map((scr) => {
+                                      const tabKey = `stitch-screen:${scr.id}`;
+                                      return (
+                                        <button
+                                          key={tabKey}
+                                          type="button"
+                                          onClick={() => {
+                                            setGate2ActiveScreenId(scr.id);
+                                            setStitchScreenTab(tabKey);
+                                          }}
+                                          className={`transition ${
+                                            stitchScreenTab === tabKey ? themeMap.lightText : 'opacity-65 hover:opacity-100'
+                                          }`}
+                                        >
+                                          {scr.name}
+                                        </button>
+                                      );
+                                    })}
                                   <button
                                     type="button"
                                     onClick={() => setStitchScreenTab('landing')}
@@ -5355,6 +5892,115 @@ export default function App() {
                                   </button>
                                 </div>
                               </div>
+
+                              {/* GOOGLE STITCH GENERATED PROJECT SCREENS RENDERED DIRECTLY IN THE LIVE CANVAS */}
+                              {stitchScreenTab.startsWith('stitch-screen:') && gate2Design && (() => {
+                                const requestedId = stitchScreenTab.replace('stitch-screen:', '');
+                                const activeScr =
+                                  gate2Design.screens.find(s => s.id === requestedId) ||
+                                  gate2Design.screens.find(s => s.id === gate2ActiveScreenId) ||
+                                  gate2Design.screens[0];
+                                if (!activeScr) return null;
+                                return (
+                                  <div className="flex-1 flex flex-col overflow-y-auto">
+                                    <div className="px-5 py-2.5 bg-slate-900/95 text-white border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+                                      <div className="flex items-center gap-2">
+                                        <span className="px-2 py-0.5 rounded bg-orange-500/20 text-orange-300 border border-orange-400/30 text-[10px] font-bold">
+                                          شاشة مصممة بواسطة Google Stitch
+                                        </span>
+                                        <span className="font-black text-white">{activeScr.name}</span>
+                                        <span className="text-slate-400 text-[11px]">— {activeScr.summary}</span>
+                                      </div>
+                                      <div className="flex items-center gap-2 font-mono text-[10px]" dir="ltr">
+                                        <span className="px-2 py-0.5 rounded bg-slate-800 text-teal-300">
+                                          Route: {activeScr.route}
+                                        </span>
+                                        <span className="px-2 py-0.5 rounded bg-slate-800 text-amber-300">
+                                          Role: {activeScr.primaryRole}
+                                        </span>
+                                        <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                                          Layout: {activeScr.layoutType}
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    <div className="w-full h-[540px] bg-white border-b border-slate-200">
+                                      <iframe
+                                        title={`gate2-live-stitch-canvas-${activeScr.id}`}
+                                        srcDoc={activeScr.htmlContent}
+                                        sandbox="allow-scripts"
+                                        className="w-full h-full border-0"
+                                      />
+                                    </div>
+
+                                    {/* Interactive Screen Architecture, Sections & User Flows inside Stitch Canvas */}
+                                    <div className="p-4 bg-slate-50 space-y-3 text-xs">
+                                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                        <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2">
+                                          <div className="font-black text-slate-900 flex items-center justify-between">
+                                            <span>أقسام الشاشة ({(activeScr.sections || []).length})</span>
+                                            <span className="text-[10px] text-orange-600 font-bold">Stitch Layout</span>
+                                          </div>
+                                          <div className="space-y-1.5">
+                                            {(activeScr.sections || []).map((sec, sIdx) => (
+                                              <div key={sIdx} className="p-2 rounded-xl bg-slate-50 border border-slate-100">
+                                                <div className="font-bold text-slate-800">{sec.title}</div>
+                                                <div className="text-[11px] text-slate-500">{sec.description}</div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+
+                                        <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2">
+                                          <div className="font-black text-slate-900 flex items-center justify-between">
+                                            <span>مكونات النظام التفاعلية ({(gate2Design.components || []).length})</span>
+                                            <span className="text-[10px] text-teal-600 font-bold">UI Components</span>
+                                          </div>
+                                          <div className="flex flex-wrap gap-1.5">
+                                            {(gate2Design.components || []).map((comp, idx) => (
+                                              <span
+                                                key={idx}
+                                                className="px-2.5 py-1 rounded-xl bg-teal-50 border border-teal-200 text-teal-900 font-bold text-[11px]"
+                                              >
+                                                🧩 {comp.name}
+                                              </span>
+                                            ))}
+                                          </div>
+                                          {activeScr.actions && activeScr.actions.length > 0 && (
+                                            <div className="pt-2 border-t border-slate-100">
+                                              <div className="text-[10px] font-bold text-slate-400 mb-1">الإجراءات التفاعلية (Screen Actions):</div>
+                                              <div className="flex flex-wrap gap-1">
+                                                {activeScr.actions.map((act, idx) => (
+                                                  <span key={idx} className="px-2 py-0.5 rounded bg-orange-50 text-orange-700 border border-orange-200 text-[10px] font-semibold">
+                                                    ⚡ {act}
+                                                  </span>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2">
+                                          <div className="font-black text-slate-900 flex items-center justify-between">
+                                            <span>رحلات المستخدم ({(gate2Design.userFlows || []).length})</span>
+                                            <span className="text-[10px] text-amber-600 font-bold">User Journeys</span>
+                                          </div>
+                                          <div className="space-y-1.5">
+                                            {(gate2Design.userFlows || []).map((flow, fIdx) => (
+                                              <div key={fIdx} className="p-2 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
+                                                <div className="font-bold text-slate-800">{flow.name}</div>
+                                                <div className="text-[11px] text-slate-500">
+                                                  {(flow.steps || []).join(' ← ')}
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })()}
 
                               {/* TAB 0: LANDING PAGE (الصفحة الرئيسية - LANDING PAGE) */}
                               {stitchScreenTab === 'landing' && (

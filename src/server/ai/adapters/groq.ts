@@ -7,7 +7,10 @@ import {
   classifyHttpError,
   redactSecrets,
 } from '../types.ts';
-import { validateAndNormalizeEndpointForProvider } from '../credentialResolver.ts';
+import {
+  normalizeGroqModelId,
+  validateAndNormalizeEndpointForProvider,
+} from '../credentialResolver.ts';
 
 export class GroqAdapter implements ProviderAdapter {
   public readonly providerType = 'groq' as const;
@@ -18,7 +21,7 @@ export class GroqAdapter implements ProviderAdapter {
   ): Promise<AIAdapterResponse> {
     const startTime = Date.now();
     const fetchFn = options.fetchImpl || globalThis.fetch;
-    const model = (request.configuredModel || '').trim();
+    const model = normalizeGroqModelId((request.configuredModel || '').trim());
     const apiKey = (request.apiKey || '').trim();
 
     if (!model) {

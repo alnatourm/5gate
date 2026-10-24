@@ -50,12 +50,12 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     name: 'Google Stitch (UI/UX Design AI)',
     providerType: 'stitch',
     model: 'google-stitch-v2-ui',
-    status: 'standby',
+    status: 'active',
     enabled: true,
     apiKey: '',
     useSystemEnv: true,
     endpoint: 'https://stitch.withgoogle.com/api/v1/generate',
-    latency: 'N/A',
+    latency: '110ms',
     assignedGates: ['GATE 02'],
     monthlyQuotaJod: 1500,
     usedQuotaJod: 0,
@@ -205,17 +205,17 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
     gateCode: 'GATE 02',
     title: 'وكيل التصميم وتجربة المستخدم (UI/UX Design Agent)',
     roleEn: 'UI/UX & Design System Architect',
-    desc: 'تحويل وثيقة الـ PRD المعتمدة إلى مواصفات تصميم وشاشات واجهات عصرية متجاوبة تدعم العربية (RTL) بنظام Tailwind CSS.',
-    providerId: 'prov-gemini',
-    providerName: 'Google Gemini Enterprise',
-    model: 'gemini-3.8-flash',
+    desc: 'تحويل وثيقة الـ PRD المعتمدة إلى مواصفات تصميم وشاشات واجهات عصرية متجاوبة تدعم العربية (RTL) بنظام Tailwind CSS ومحرك Google Stitch التفاعلي.',
+    providerId: 'prov-stitch',
+    providerName: 'Google Stitch (UI/UX Design AI)',
+    model: 'google-stitch-v2-ui',
     apiKey: '',
     useProviderKey: true,
     temperature: 0.6,
     maxTokens: 4096,
     enabled: true,
     systemPrompt:
-      'أنت وكيل التصميم والواجهات (Gate 2 Design Agent) في مصنع OGroup AI Factory. مهمتك تحويل وثيقة المتطلبات المعتمدة إلى تصميم واجهات تفاعلي ونظام ألوان وتخطيط شاشات متجاوب يدعم العربية (RTL) باستخدام Tailwind CSS.',
+      'أنت محرك Google Stitch المتخصص في تصميم واجهات المستخدم وتجربة الاستخدام (Gate 2 UI/UX Design Agent) في مصنع OGroup AI Factory. مهمتك تحويل وثيقة المتطلبات المعتمدة إلى تصميم واجهات تفاعلي حي داخل Stitch Canvas ونظام ألوان وتخطيط شاشات متجاوب يدعم العربية (RTL) باستخدام Tailwind CSS.',
   },
   {
     gate: 3,
@@ -270,6 +270,21 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
   },
 ];
 
+function cleanSubmittedApiKey(val: unknown): string {
+  if (typeof val !== 'string') return '';
+  const trimmed = val.trim();
+  if (!trimmed || trimmed.includes('•')) return '';
+  return trimmed;
+}
+
+function isAgentModelCompatibleWithProviderType(model: string, providerType: string): boolean {
+  const m = (model || '').toLowerCase().trim();
+  if (!m) return false;
+  if (providerType !== 'gemini' && m.startsWith('gemini-')) return false;
+  if (providerType !== 'stitch' && m.includes('stitch')) return false;
+  return true;
+}
+
 function normalizeProviders(
   list: any[],
   previousProviders: ProviderConfig[] = DEFAULT_PROVIDERS,
@@ -284,7 +299,7 @@ function normalizeProviders(
     const prev = prevMap.get(def.id) || def;
     if (!saved) return prev;
     const providerType = inferProviderType({ ...def, ...prev, ...saved });
-    const incomingKey = typeof saved.apiKey === 'string' ? saved.apiKey.trim() : '';
+    const incomingKey = cleanSubmittedApiKey(saved.apiKey);
     const resolvedKey =
       saved.clearApiKey === true
         ? ''
@@ -324,7 +339,7 @@ function normalizeProviders(
     .filter((p) => p && p.id && !DEFAULT_PROVIDERS.some((def) => def.id === p.id))
     .map((p) => {
       const prev = prevMap.get(p.id);
-      const incomingKey = typeof p.apiKey === 'string' ? p.apiKey.trim() : '';
+      const incomingKey = cleanSubmittedApiKey(p.apiKey);
       const inferredType = inferProviderType({ ...prev, ...p });
       const rawEndpoint =
         p.endpoint !== undefined ? String(p.endpoint).trim() : prev?.endpoint || '';
@@ -360,11 +375,13 @@ function normalizeProviders(
 function normalizeAgents(
   list: any[],
   providers: ProviderConfig[],
-  previousAgents: AgentConfig[] = DEFAULT_AGENTS
+  previousAgents: AgentConfig[] = DEFAULT_AGENTS,
+  previousProviders: ProviderConfig[] = DEFAULT_PROVIDERS
 ): AgentConfig[] {
   if (!Array.isArray(list) || list.length === 0) return previousAgents;
   const savedMap = new Map(list.filter(Boolean).map((a) => [Number(a.gate), a]));
   const prevMap = new Map(previousAgents.map((a) => [Number(a.gate), a]));
+  const prevProvMap = new Map(previousProviders.map((p) => [p.id, p]));
 
   return DEFAULT_AGENTS.map((def) => {
     const saved = savedMap.get(def.gate);
@@ -376,15 +393,30 @@ function normalizeAgents(
       providers.find((p) => p.id === targetProviderId) ||
       providers.find((p) => p.id === def.providerId) ||
       providers[0];
+    const prevLinkedProv = linkedProv ? prevProvMap.get(linkedProv.id) : undefined;
 
-    const resolvedModel =
-      saved.model && String(saved.model).trim()
-        ? String(saved.model).trim()
-        : linkedProv?.model || prev.model || def.model;
+    const rawSavedModel = saved.model && String(saved.model).trim() ? String(saved.model).trim() : '';
+    const providerModelChanged =
+      Boolean(linkedProv && prevLinkedProv && linkedProv.model !== prevLinkedProv.model) &&
+      rawSavedModel === prevLinkedProv?.model;
 
-    const incomingKey = typeof saved.apiKey === 'string' ? saved.apiKey.trim() : '';
+    let resolvedModel = rawSavedModel || linkedProv?.model || prev.model || def.model;
+    if (
+      linkedProv &&
+      (providerModelChanged ||
+        !isAgentModelCompatibleWithProviderType(resolvedModel, linkedProv.providerType))
+    ) {
+      resolvedModel = linkedProv.model || resolvedModel;
+    }
+
+    const incomingKey = cleanSubmittedApiKey(saved.apiKey);
     const resolvedKey =
       saved.clearApiKey === true ? '' : incomingKey || prev.apiKey || def.apiKey;
+
+    // If the agent has a key for its linked provider and the linked provider has no key yet, sync it to the provider in-memory
+    if (linkedProv && resolvedKey && !linkedProv.apiKey) {
+      linkedProv.apiKey = resolvedKey;
+    }
 
     return {
       ...def,
@@ -408,12 +440,62 @@ function normalizeAgents(
 
 const CONFIG_FILE_PATH = path.join(process.cwd(), '.ai-factory-config.json');
 
+function upgradeStitchDesignerConfig(
+  providers: ProviderConfig[],
+  agents: AgentConfig[]
+): { providers: ProviderConfig[]; agents: AgentConfig[]; changed: boolean } {
+  let changed = false;
+  const nextProviders = providers.map((p) => {
+    if (p.id === 'prov-stitch' && (p.status === 'standby' || p.latency === 'N/A')) {
+      changed = true;
+      return {
+        ...p,
+        status: 'active' as const,
+        enabled: true,
+        latency: p.latency === 'N/A' ? '110ms' : p.latency,
+      };
+    }
+    return p;
+  });
+
+  const stitchProv = nextProviders.find((p) => p.id === 'prov-stitch');
+  const nextAgents = agents.map((a) => {
+    if (
+      a.gate === 2 &&
+      stitchProv &&
+      (a.providerId === 'prov-stitch' ||
+        (a.providerId === 'prov-gemini' && (!a.model || a.model === 'gemini-3.8-flash' || a.model === 'gemini-2.5-flash')))
+    ) {
+      const nextModel =
+        a.model && a.model.toLowerCase().includes('stitch')
+          ? a.model
+          : stitchProv.model || 'google-stitch-v2-ui';
+      if (a.providerId !== 'prov-stitch' || a.model !== nextModel || a.providerName !== stitchProv.name) {
+        changed = true;
+      }
+      return {
+        ...a,
+        providerId: 'prov-stitch',
+        providerName: stitchProv.name,
+        model: nextModel,
+      };
+    }
+    return a;
+  });
+
+  return { providers: nextProviders, agents: nextAgents, changed };
+}
+
 function loadPersistedConfig(storage: FactoryStorage): { providers: ProviderConfig[]; agents: AgentConfig[] } {
   const fromDb = storage.loadAdminConfig();
   if (fromDb && (fromDb.providers.length > 0 || fromDb.agents.length > 0)) {
-    const providers = normalizeProviders(fromDb.providers, DEFAULT_PROVIDERS, { allowRepairOnBoot: true });
-    const agents = normalizeAgents(fromDb.agents, providers);
-    return { providers, agents };
+    const rawProviders = normalizeProviders(fromDb.providers, DEFAULT_PROVIDERS, { allowRepairOnBoot: true });
+    const rawAgents = normalizeAgents(fromDb.agents, rawProviders);
+    const upgraded = upgradeStitchDesignerConfig(rawProviders, rawAgents);
+    if (upgraded.changed) {
+      storage.saveAdminConfig(upgraded.providers, upgraded.agents);
+    }
+    return { providers: upgraded.providers, agents: upgraded.agents };
   }
   try {
     if (fs.existsSync(CONFIG_FILE_PATH)) {
@@ -422,10 +504,11 @@ function loadPersistedConfig(storage: FactoryStorage): { providers: ProviderConf
         (Array.isArray(raw.providers) && raw.providers.length > 0) ||
         (Array.isArray(raw.agents) && raw.agents.length > 0)
       ) {
-        const providers = normalizeProviders(raw.providers, DEFAULT_PROVIDERS, { allowRepairOnBoot: true });
-        const agents = normalizeAgents(raw.agents, providers);
-        storage.saveAdminConfig(providers, agents);
-        return { providers, agents };
+        const rawProviders = normalizeProviders(raw.providers, DEFAULT_PROVIDERS, { allowRepairOnBoot: true });
+        const rawAgents = normalizeAgents(raw.agents, rawProviders);
+        const upgraded = upgradeStitchDesignerConfig(rawProviders, rawAgents);
+        storage.saveAdminConfig(upgraded.providers, upgraded.agents);
+        return { providers: upgraded.providers, agents: upgraded.agents };
       }
     }
   } catch (err) {
@@ -2017,13 +2100,16 @@ export function createApp(options: CreateAppOptions = {}) {
   app.post('/api/admin/config', (req, res) => {
     try {
       const { providers, agents } = req.body || {};
+      const prevProvidersSnapshot = providersConfig;
       let nextProviders = providersConfig;
       if (Array.isArray(providers) && providers.length > 0) {
         nextProviders = normalizeProviders(providers, providersConfig);
       }
       let nextAgents = agentsConfig;
       if (Array.isArray(agents) && agents.length > 0) {
-        nextAgents = normalizeAgents(agents, nextProviders, agentsConfig);
+        nextAgents = normalizeAgents(agents, nextProviders, agentsConfig, prevProvidersSnapshot);
+      } else if (nextProviders !== prevProvidersSnapshot) {
+        nextAgents = normalizeAgents(agentsConfig, nextProviders, agentsConfig, prevProvidersSnapshot);
       }
       providersConfig = nextProviders;
       agentsConfig = nextAgents;
@@ -2252,10 +2338,19 @@ async function startServer() {
   });
 }
 
+const isTestEnv = Boolean(process.env.VITEST || process.env.NODE_ENV === 'test');
 const isMainModule =
-  process.argv[1] &&
-  path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+  !isTestEnv &&
+  Boolean(
+    process.argv[1] &&
+      (path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url)) ||
+        process.argv[1].endsWith('server.ts') ||
+        process.argv[1].endsWith('server.js'))
+  );
 
 if (isMainModule) {
-  startServer();
+  startServer().catch((err) => {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+  });
 }

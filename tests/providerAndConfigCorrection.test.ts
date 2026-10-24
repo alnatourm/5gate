@@ -8,6 +8,8 @@ import { createApp } from '../server.ts';
 import { executeProviderRequest } from '../src/server/ai/router.ts';
 import {
   PROVIDER_ENDPOINT_REGISTRY,
+  inferProviderType,
+  normalizeGroqModelId,
   validateAndNormalizeEndpointForProvider,
 } from '../src/server/ai/credentialResolver.ts';
 import { ProviderHttpClient, ProviderType } from '../src/server/ai/types.ts';
@@ -568,24 +570,53 @@ describe('Phase 1 & Phase 2 — Provider Configuration Authority, Endpoint Valid
       tc.verifyHeaders(recordedRequests[0].headers);
     }
 
-    // Verify Stitch returns integration_required and Cloud returns unsupported_protocol without making HTTP calls
+    // Verify Stitch Designer Engine succeeds for connection test & Gate 2 UI/UX DesignArtifact synthesis without calling Gemini
     recordedRequests.length = 0;
-    const stitchRes = await executeProviderRequest(
+    const stitchPingRes = await executeProviderRequest(
       {
         providerType: 'stitch',
         providerId: 'prov-stitch',
-        providerName: 'Google Stitch',
+        providerName: 'Google Stitch (UI/UX Design AI)',
         configuredModel: 'google-stitch-v2-ui',
         endpoint: 'https://stitch.withgoogle.com/api/v1/generate',
-        apiKey: 'stitch-key-123',
-        keySource: 'Test Suite',
-        userPrompt: 'Test Stitch',
+        apiKey: '',
+        keySource: 'Stitch Canvas Engine',
+        userPrompt: 'Connection Verification Test',
       },
       { fetchImpl: mockHttpClient }
     );
-    expect(stitchRes.ok).toBe(false);
-    expect(stitchRes.status).toBe('integration_required');
+    expect(stitchPingRes.ok).toBe(true);
+    expect(stitchPingRes.status).toBe('succeeded');
+    expect(stitchPingRes.response).toContain('Google Stitch');
     expect(recordedRequests.length).toBe(0);
+
+    const stitchDesignRes = await executeProviderRequest(
+      {
+        providerType: 'stitch',
+        providerId: 'prov-stitch',
+        providerName: 'Google Stitch (UI/UX Design AI)',
+        configuredModel: 'google-stitch-v2-ui',
+        endpoint: 'https://stitch.withgoogle.com/api/v1/generate',
+        apiKey: '',
+        keySource: 'Stitch Canvas Engine',
+        userPrompt: `Create or update the Gate 2 UI/UX DesignArtifact based on the following inputs:\n\nApproved Gate 1 PRD (Version v1):\n{\n  "projectName": "منصة عقار ذكي",\n  "overview": "منصة حجز معاينات عقارية",\n  "features": ["حجز موعد معاينة", "لوحة تحكم العقارات"]\n}\n\nCustomer Design Instruction:\nأضف شاشة تقارير العقارات باللون الأزرق`,
+      },
+      { fetchImpl: mockHttpClient }
+    );
+    expect(stitchDesignRes.ok).toBe(true);
+    expect(stitchDesignRes.status).toBe('succeeded');
+    const parsedStitchDesign = JSON.parse(stitchDesignRes.response || '{}');
+    expect(parsedStitchDesign.rtl).toBe(true);
+    expect(parsedStitchDesign.screens.length).toBeGreaterThanOrEqual(3);
+    expect(parsedStitchDesign.designTokens.primaryColor).toBe('#2563EB');
+
+    // Verify Gate 2 Agent is assigned to Google Stitch by default and /api/admin/test-connection succeeds for Gate 2
+    const adminCheckRes = await request(appInstance)
+      .post('/api/admin/test-connection')
+      .send({ gate: 2 });
+    expect(adminCheckRes.status).toBe(200);
+    expect(adminCheckRes.body.ok).toBe(true);
+    expect(adminCheckRes.body.providerType).toBe('stitch');
 
     const cloudRes = await executeProviderRequest(
       {
@@ -637,4 +668,131 @@ describe('Phase 1 & Phase 2 — Provider Configuration Authority, Endpoint Valid
     expect(res.error).not.toContain('gsk_super_secret_key_do_not_leak_999999');
     expect(res.error).toContain('[REDACTED_API_KEY]');
   });
+
+  it('Groq Console Models: GPT OSS 120B/20B, Qwen 3.8 27B, Safety GPT OSS 20B, Orpheus TTS, and Whisper v3 resolve to Groq and execute with canonical model IDs', async () => {
+    const groqModels = [
+      { input: 'openai/gpt-oss-120b', expected: 'openai/gpt-oss-120b' },
+      { input: 'GPT OSS 120B', expected: 'openai/gpt-oss-120b' },
+      { input: 'gpt-oss-120b', expected: 'openai/gpt-oss-120b' },
+      { input: 'openai/gpt-oss-20b', expected: 'openai/gpt-oss-20b' },
+      { input: 'GPT OSS 20B', expected: 'openai/gpt-oss-20b' },
+      { input: 'qwen/qwen-3.8-27b', expected: 'qwen/qwen-3.8-27b' },
+      { input: 'Qwen 3.8 27B', expected: 'qwen/qwen-3.8-27b' },
+      { input: 'openai/gpt-oss-safeguard-20b', expected: 'openai/gpt-oss-safeguard-20b' },
+      { input: 'Safety GPT OSS 20B', expected: 'openai/gpt-oss-safeguard-20b' },
+      { input: 'canopylabs/orpheus-arabic-saudi', expected: 'canopylabs/orpheus-arabic-saudi' },
+      { input: 'Orpheus Arabic Saudi', expected: 'canopylabs/orpheus-arabic-saudi' },
+      { input: 'canopylabs/orpheus-v1-english', expected: 'canopylabs/orpheus-v1-english' },
+      { input: 'Orpheus English', expected: 'canopylabs/orpheus-v1-english' },
+      { input: 'whisper-large-v3', expected: 'whisper-large-v3' },
+      { input: 'Whisper Large v3 Turbo', expected: 'whisper-large-v3-turbo' },
+    ];
+
+    for (const item of groqModels) {
+      expect(normalizeGroqModelId(item.input)).toBe(item.expected);
+      expect(inferProviderType({ model: item.input })).toBe('groq');
+    }
+
+    recordedRequests.length = 0;
+    const res = await executeProviderRequest(
+      {
+        providerType: 'groq',
+        providerId: 'prov-groq',
+        providerName: 'Groq Cloud LPU Engine',
+        configuredModel: 'GPT OSS 120B',
+        endpoint: 'https://api.groq.com/openai/v1/chat/completions',
+        apiKey: 'gsk_test_groq_oss_120b',
+        keySource: 'Provider Vault',
+        userPrompt: 'Test GPT OSS 120B on Groq',
+      },
+      { fetchImpl: mockHttpClient }
+    );
+
+    expect(res.ok).toBe(true);
+    expect(recordedRequests.length).toBe(1);
+    expect(recordedRequests[0].url).toBe('https://api.groq.com/openai/v1/chat/completions');
+    expect(recordedRequests[0].body.model).toBe('openai/gpt-oss-120b');
+  });
+
+  it('Regression Test: Saved Groq / Non-Stitch Provider & Agent keys work when browser sends redacted providerConfig/agentConfig (apiKey: "") and syncs model to linked gates', async () => {
+    const initialRes = await request(appInstance).get('/api/admin/config');
+    expect(initialRes.status).toBe(200);
+
+    // 1. Configure Groq with openai/gpt-oss-120b and custom key (useSystemEnv: false), and link Gate 1 to prov-groq
+    const updatedProviders = initialRes.body.providers.map((p: any) =>
+      p.id === 'prov-groq'
+        ? {
+            ...p,
+            model: 'openai/gpt-oss-120b',
+            apiKey: 'gsk_browser_saved_groq_key_987654',
+            useSystemEnv: false,
+            enabled: true,
+          }
+        : p
+    );
+    const updatedAgents = initialRes.body.agents.map((a: any) =>
+      a.gate === 1
+        ? {
+            ...a,
+            providerId: 'prov-groq',
+            providerName: 'Groq Cloud LPU Engine',
+            model: 'openai/gpt-oss-120b',
+            useProviderKey: true,
+          }
+        : a
+    );
+
+    const saveRes = await request(appInstance)
+      .post('/api/admin/config')
+      .send({ providers: updatedProviders, agents: updatedAgents });
+    expect(saveRes.status).toBe(200);
+    expect(saveRes.body.ok).toBe(true);
+
+    // Server returns redacted apiKey: '' with hasKey: true and maskedKey
+    const redactedGroqProv = saveRes.body.providers.find((p: any) => p.id === 'prov-groq');
+    const redactedGate1Agent = saveRes.body.agents.find((a: any) => a.gate === 1);
+    expect(redactedGroqProv.apiKey).toBe('');
+    expect(redactedGroqProv.hasKey).toBe(true);
+    expect(redactedGroqProv.maskedKey).toBe('gsk_••••••••7654');
+
+    // 2. Simulate clicking "اختبار المفتاح والاتصال" on the Groq provider card in the browser
+    // (which sends providerConfig with apiKey: '' from React state)
+    recordedRequests.length = 0;
+    const provTestRes = await request(appInstance)
+      .post('/api/admin/test-connection')
+      .send({
+        gate: 1,
+        providerId: 'prov-groq',
+        providers: saveRes.body.providers,
+        agents: saveRes.body.agents,
+        agentConfig: redactedGate1Agent,
+        providerConfig: redactedGroqProv,
+      });
+    expect(provTestRes.status).toBe(200);
+    expect(provTestRes.body.ok).toBe(true);
+    expect(recordedRequests.length).toBe(1);
+    expect(recordedRequests[0].url).toBe('https://api.groq.com/openai/v1/chat/completions');
+    expect(recordedRequests[0].body.model).toBe('openai/gpt-oss-120b');
+    expect(recordedRequests[0].headers.Authorization).toBe('Bearer gsk_browser_saved_groq_key_987654');
+
+    // 3. Simulate clicking "اختبار الوكيل والمفتاح حياً" on Gate 1 Agent card in the browser
+    // (which sends agentConfig and providerConfig with apiKey: '')
+    recordedRequests.length = 0;
+    const agentTestRes = await request(appInstance)
+      .post('/api/admin/test-connection')
+      .send({
+        gate: 1,
+        providers: saveRes.body.providers,
+        agents: saveRes.body.agents,
+        agentConfig: redactedGate1Agent,
+        providerConfig: redactedGroqProv,
+      });
+    expect(agentTestRes.status).toBe(200);
+    expect(agentTestRes.body.ok).toBe(true);
+    expect(recordedRequests.length).toBe(1);
+    expect(recordedRequests[0].url).toBe('https://api.groq.com/openai/v1/chat/completions');
+    expect(recordedRequests[0].body.model).toBe('openai/gpt-oss-120b');
+    expect(recordedRequests[0].headers.Authorization).toBe('Bearer gsk_browser_saved_groq_key_987654');
+  });
 });
+

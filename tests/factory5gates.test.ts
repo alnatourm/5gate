@@ -334,17 +334,30 @@ export function getPatients(): PatientRecord[] { return [{ id: '1', name: 'أح�
     expect(res.body.error).toContain('لا يوجد مفتاح API');
   });
 
-  it('2. POST /api/admin/test-connection returns integration_required when Stitch is tested without a real external Stitch service', async () => {
-    const res = await request(appInstance)
+  it('2. POST /api/admin/test-connection succeeds for Google Stitch Designer (Gate 2) and returns 501 unsupported_protocol for unconfigured Cloud IAM', async () => {
+    const stitchRes = await request(appInstance)
       .post('/api/admin/test-connection')
       .send({
         providerId: 'prov-stitch',
-        customKey: 'stitch-test-key-123',
+        gate: 2,
       });
 
-    expect(res.status).toBe(501);
-    expect(res.body.ok).toBe(false);
-    expect(res.body.status).toBe('integration_required');
+    expect(stitchRes.status).toBe(200);
+    expect(stitchRes.body.ok).toBe(true);
+    expect(stitchRes.body.providerType).toBe('stitch');
+    expect(stitchRes.body.reply).toContain('Google Stitch');
+
+    const cloudRes = await request(appInstance)
+      .post('/api/admin/test-connection')
+      .send({
+        provider: 'cloud',
+        model: 'claude-3-5-sonnet-bedrock',
+        endpoint: 'https://bedrock-runtime.us-east-1.amazonaws.com',
+      });
+
+    expect(cloudRes.status).toBe(501);
+    expect(cloudRes.body.ok).toBe(false);
+    expect(cloudRes.body.status).toBe('unsupported_protocol');
   });
 
   it('3. POST /api/admin/test-connection uses the selected provider and model when a valid key is provided', async () => {

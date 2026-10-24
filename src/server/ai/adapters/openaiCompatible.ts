@@ -8,7 +8,10 @@ import {
   classifyHttpError,
   redactSecrets,
 } from '../types.ts';
-import { validateAndNormalizeEndpointForProvider } from '../credentialResolver.ts';
+import {
+  normalizeGroqModelId,
+  validateAndNormalizeEndpointForProvider,
+} from '../credentialResolver.ts';
 
 export class OpenAICompatibleAdapter implements ProviderAdapter {
   public readonly providerType: ProviderType;
@@ -24,7 +27,8 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     const startTime = Date.now();
     const fetchFn = options.fetchImpl || globalThis.fetch;
     const providerLabel = request.providerType || this.providerType;
-    const model = (request.configuredModel || '').trim();
+    const rawModel = (request.configuredModel || '').trim();
+    const model = providerLabel === 'groq' ? normalizeGroqModelId(rawModel) : rawModel;
     const apiKey = (request.apiKey || '').trim();
 
     if (!model) {

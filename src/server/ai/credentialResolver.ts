@@ -15,6 +15,56 @@ export interface ResolvedExecutionTarget {
   agentGate?: number;
 }
 
+export const GROQ_MODEL_ALIASES: Record<string, string> = {
+  'gpt oss 120b': 'openai/gpt-oss-120b',
+  'gpt-oss-120b': 'openai/gpt-oss-120b',
+  'openai/gpt-oss-120b': 'openai/gpt-oss-120b',
+  'gpt oss 20b': 'openai/gpt-oss-20b',
+  'gpt-oss-20b': 'openai/gpt-oss-20b',
+  'openai/gpt-oss-20b': 'openai/gpt-oss-20b',
+  'safety gpt oss 20b': 'openai/gpt-oss-safeguard-20b',
+  'gpt-oss-safeguard-20b': 'openai/gpt-oss-safeguard-20b',
+  'openai/gpt-oss-safeguard-20b': 'openai/gpt-oss-safeguard-20b',
+  'qwen 3.8 27b': 'qwen/qwen-3.8-27b',
+  'qwen-3.8-27b': 'qwen/qwen-3.8-27b',
+  'qwen/qwen-3.8-27b': 'qwen/qwen-3.8-27b',
+  'qwen 3 32b': 'qwen/qwen3-32b',
+  'qwen/qwen3-32b': 'qwen/qwen3-32b',
+  'orpheus english': 'canopylabs/orpheus-v1-english',
+  'orpheus-v1-english': 'canopylabs/orpheus-v1-english',
+  'canopylabs/orpheus-v1-english': 'canopylabs/orpheus-v1-english',
+  'orpheus arabic saudi': 'canopylabs/orpheus-arabic-saudi',
+  'orpheus-arabic-saudi': 'canopylabs/orpheus-arabic-saudi',
+  'canopylabs/orpheus-arabic-saudi': 'canopylabs/orpheus-arabic-saudi',
+  'whisper large v3': 'whisper-large-v3',
+  'whisper-large-v3': 'whisper-large-v3',
+  'whisper large v3 turbo': 'whisper-large-v3-turbo',
+  'whisper-large-v3-turbo': 'whisper-large-v3-turbo',
+};
+
+export function normalizeGroqModelId(rawModel: string): string {
+  const trimmed = (rawModel || '').trim();
+  if (!trimmed) return trimmed;
+  const lookup = GROQ_MODEL_ALIASES[trimmed.toLowerCase()];
+  return lookup || trimmed;
+}
+
+export function isGroqModelIdentifier(modelLower: string): boolean {
+  if (!modelLower) return false;
+  if (GROQ_MODEL_ALIASES[modelLower]) return true;
+  return (
+    modelLower.includes('llama-') ||
+    modelLower.includes('mixtral-') ||
+    modelLower.includes('gpt-oss') ||
+    modelLower.startsWith('openai/gpt-oss') ||
+    modelLower.includes('qwen-3.8-27b') ||
+    modelLower.startsWith('qwen/qwen') ||
+    modelLower.includes('orpheus') ||
+    modelLower.startsWith('canopylabs/') ||
+    modelLower.startsWith('whisper-large-v3')
+  );
+}
+
 export function inferProviderType(prov: Partial<ProviderConfig> & { provider?: string }): ProviderType {
   const idAndName = `${prov.id || ''} ${prov.name || ''}`.toLowerCase();
   const modelLower = (prov.model || '').toLowerCase().trim();
@@ -55,7 +105,7 @@ export function inferProviderType(prov: Partial<ProviderConfig> & { provider?: s
   ) {
     // Guard against a non-Gemini model on a card that accidentally kept 'gemini' or 'stitch' type
     if (explicit === 'gemini' || explicit === 'stitch') {
-      if (modelLower.includes('llama-') || modelLower.includes('mixtral-')) return 'groq';
+      if (isGroqModelIdentifier(modelLower)) return 'groq';
       if (modelLower.startsWith('gpt-') || modelLower.startsWith('o1') || modelLower.startsWith('o3')) return 'openai';
       if (modelLower.startsWith('claude-')) return 'anthropic';
       if (modelLower.startsWith('deepseek-')) return 'deepseek';
@@ -63,7 +113,7 @@ export function inferProviderType(prov: Partial<ProviderConfig> & { provider?: s
     return explicit;
   }
 
-  if (modelLower.includes('llama-') || modelLower.includes('mixtral-')) return 'groq';
+  if (isGroqModelIdentifier(modelLower)) return 'groq';
   if (modelLower.startsWith('gpt-') || modelLower.startsWith('o1') || modelLower.startsWith('o3')) return 'openai';
   if (modelLower.startsWith('claude-')) return 'anthropic';
   if (modelLower.startsWith('deepseek-')) return 'deepseek';
@@ -415,6 +465,25 @@ export function validateAndNormalizeEndpointForProvider(
       };
     }
 
+    if (providerType === 'stitch') {
+      if (
+        !pathLower ||
+        pathLower === '/api' ||
+        pathLower === '/api/v1' ||
+        pathLower === '/v1' ||
+        pathLower === '/v1/generate' ||
+        pathLower === '/api/v1/generate'
+      ) {
+        parsedUrl.pathname = '/api/v1/generate';
+        return { valid: true, endpoint: parsedUrl.toString() };
+      }
+      return {
+        valid: false,
+        endpoint: trimmed,
+        error: `مسار الاتصال لمحرك Google Stitch غير صالح (${cleanPath}). المسار الصحيح هو /api/v1/generate.`,
+      };
+    }
+
     return { valid: true, endpoint: parsedUrl.toString() };
   }
 
@@ -500,6 +569,20 @@ export function resolveSystemEnvKeyForProvider(
   }
 }
 
+function cleanApiKeyCandidate(val?: string): string {
+  const trimmed = (val || '').trim();
+  if (!trimmed || trimmed.includes('•')) return '';
+  return trimmed;
+}
+
+function isModelCompatibleWithProvider(model: string, providerType: ProviderType): boolean {
+  const m = (model || '').toLowerCase().trim();
+  if (!m) return false;
+  if (providerType !== 'gemini' && m.startsWith('gemini-')) return false;
+  if (providerType !== 'stitch' && m.includes('stitch')) return false;
+  return true;
+}
+
 export function resolveAdminTargetCredentials(params: {
   gate?: number;
   providerId?: string;
@@ -526,9 +609,17 @@ export function resolveAdminTargetCredentials(params: {
     const foundProv = providers.find((p) => p.id === providerId);
     const inferredType = inferProviderType({ ...foundProv, ...providerOverride });
     const rawEndpoint =
-      providerOverride?.endpoint !== undefined
+      providerOverride?.endpoint !== undefined && String(providerOverride.endpoint).trim() !== ''
         ? providerOverride.endpoint
         : foundProv?.endpoint || '';
+
+    const overrideProvKey = cleanApiKeyCandidate(providerOverride?.apiKey);
+    const savedProvKey = cleanApiKeyCandidate(foundProv?.apiKey);
+    const linkedAgentKey = cleanApiKeyCandidate(
+      agents.find((a) => a.providerId === providerId && cleanApiKeyCandidate(a.apiKey))?.apiKey
+    );
+    const resolvedProvKey = overrideProvKey || savedProvKey || linkedAgentKey;
+
     const mergedProv: ProviderConfig = {
       id: providerId,
       name: providerOverride?.name || foundProv?.name || providerId,
@@ -541,10 +632,7 @@ export function resolveAdminTargetCredentials(params: {
           : foundProv
           ? foundProv.enabled
           : true,
-      apiKey:
-        providerOverride?.apiKey !== undefined
-          ? providerOverride.apiKey
-          : foundProv?.apiKey || '',
+      apiKey: resolvedProvKey,
       useSystemEnv:
         typeof providerOverride?.useSystemEnv === 'boolean'
           ? providerOverride.useSystemEnv
@@ -559,14 +647,14 @@ export function resolveAdminTargetCredentials(params: {
     };
 
     const pType = mergedProv.providerType;
-    const explicitCustom = (customKey || '').trim();
-    const storedProvKey = (mergedProv.apiKey || '').trim();
+    const explicitCustom = cleanApiKeyCandidate(customKey);
+    const storedProvKey = cleanApiKeyCandidate(mergedProv.apiKey);
     const envKey = mergedProv.useSystemEnv
       ? resolveSystemEnvKeyForProvider(pType, managedGeminiApiKey)
       : '';
 
     let apiKey = '';
-    let keySource = 'Missing';
+    let keySource = pType === 'stitch' ? 'Stitch Canvas Engine' : 'Missing';
     if (explicitCustom) {
       apiKey = explicitCustom;
       keySource = 'Custom Key';
@@ -593,18 +681,24 @@ export function resolveAdminTargetCredentials(params: {
   // 2. Agent test / gate execution
   const gateNum = Number(gate) || 1;
   const savedAgent = agents.find((a) => a.gate === gateNum) || agents[0];
+  const resolvedAgentKey =
+    cleanApiKeyCandidate(agentOverride?.apiKey) || cleanApiKeyCandidate(savedAgent?.apiKey);
+
   const mergedAgent: AgentConfig = {
     ...savedAgent,
     ...agentOverride,
     gate: gateNum,
-    model: (agentOverride?.model !== undefined ? agentOverride.model : savedAgent?.model || '').trim(),
+    model: (
+      agentOverride?.model !== undefined && String(agentOverride.model).trim() !== ''
+        ? agentOverride.model
+        : savedAgent?.model || ''
+    ).trim(),
     providerId: agentOverride?.providerId || savedAgent?.providerId || 'prov-gemini',
     useProviderKey:
       typeof agentOverride?.useProviderKey === 'boolean'
         ? agentOverride.useProviderKey
         : savedAgent?.useProviderKey ?? true,
-    apiKey:
-      agentOverride?.apiKey !== undefined ? agentOverride.apiKey : savedAgent?.apiKey || '',
+    apiKey: resolvedAgentKey,
   };
 
   const foundProv =
@@ -618,29 +712,37 @@ export function resolveAdminTargetCredentials(params: {
     name: mergedAgent.providerName || foundProv?.name,
   });
 
-  const configuredModel = mergedAgent.model || providerOverride?.model || foundProv?.model || '';
+  const providerModel = (providerOverride?.model || foundProv?.model || '').trim();
+  const configuredModel =
+    mergedAgent.model && isModelCompatibleWithProvider(mergedAgent.model, pType)
+      ? mergedAgent.model
+      : providerModel || mergedAgent.model || '';
+
   const endpoint = normalizeEndpointForProviderType(
     pType,
-    providerOverride?.endpoint || foundProv?.endpoint
+    (providerOverride?.endpoint && String(providerOverride.endpoint).trim()) || foundProv?.endpoint
   );
 
-  const explicitCustom = (customKey || '').trim();
-  const dedicatedAgentKey = !mergedAgent.useProviderKey ? (mergedAgent.apiKey || '').trim() : '';
-  const providerKey = (providerOverride?.apiKey || foundProv?.apiKey || '').trim();
+  const explicitCustom = cleanApiKeyCandidate(customKey);
+  const providerKey =
+    cleanApiKeyCandidate(providerOverride?.apiKey) || cleanApiKeyCandidate(foundProv?.apiKey);
   const allowEnv = foundProv ? foundProv.useSystemEnv !== false : true;
   const envKey = allowEnv ? resolveSystemEnvKeyForProvider(pType, managedGeminiApiKey) : '';
 
   let apiKey = '';
-  let keySource = 'Missing';
+  let keySource = pType === 'stitch' ? 'Stitch Canvas Engine' : 'Missing';
   if (explicitCustom) {
     apiKey = explicitCustom;
     keySource = 'Custom Key';
-  } else if (dedicatedAgentKey) {
-    apiKey = dedicatedAgentKey;
+  } else if (!mergedAgent.useProviderKey && resolvedAgentKey) {
+    apiKey = resolvedAgentKey;
     keySource = `Agent Gate ${gateNum} Key`;
   } else if (providerKey) {
     apiKey = providerKey;
     keySource = 'Provider Key';
+  } else if (resolvedAgentKey) {
+    apiKey = resolvedAgentKey;
+    keySource = `Agent Gate ${gateNum} Key`;
   } else if (envKey) {
     apiKey = envKey;
     keySource = 'System Vault';
