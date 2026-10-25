@@ -124,6 +124,7 @@ export async function executeDesignAgent(
           {
             projectName: input.currentDesign.projectName,
             designSummary: input.currentDesign.designSummary,
+            stitchMetadata: input.currentDesign.stitchMetadata,
             visualTokens: input.currentDesign.visualTokens,
             screenInventory: input.currentDesign.screenInventory,
             formDefinitions: input.currentDesign.formDefinitions,

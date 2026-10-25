@@ -206,12 +206,12 @@ const DEFAULT_PROVIDERS: FactoryProvider[] = [
     id: 'prov-stitch',
     name: 'Google Stitch (UI/UX Design AI)',
     providerType: 'stitch',
-    model: 'google-stitch-v2-ui',
+    model: 'GEMINI_3_FLASH',
     status: 'active',
     enabled: true,
     apiKey: '',
     useSystemEnv: true,
-    endpoint: 'https://stitch.withgoogle.com/api/v1/generate',
+    endpoint: 'https://stitch.googleapis.com/mcp',
     latency: '110ms',
     assignedGates: ['GATE 02'],
     monthlyQuotaJod: 1500,
@@ -400,7 +400,7 @@ const DEFAULT_PROVIDERS: FactoryProvider[] = [
 ];
 
 const DEFAULT_ENDPOINT_BY_TYPE: Record<AIProviderEngineType, string> = {
-  stitch: 'https://stitch.withgoogle.com/api/v1/generate',
+  stitch: 'https://stitch.googleapis.com/mcp',
   gemini: 'https://generativelanguage.googleapis.com/v1beta',
   openai: 'https://api.openai.com/v1/chat/completions',
   anthropic: 'https://api.anthropic.com/v1/messages',
@@ -497,6 +497,13 @@ const inferProviderTypeClient = (prov: Partial<FactoryProvider>): AIProviderEngi
     return prov.providerType;
   }
 
+  if (
+    modelLower === 'gemini_3_flash' ||
+    modelLower === 'gemini_3_1_pro' ||
+    modelLower === 'gemini_3_pro'
+  ) {
+    return 'stitch';
+  }
   if (isGroqModelClient(modelLower)) return 'groq';
   if (modelLower.startsWith('gpt-') || modelLower.startsWith('o1') || modelLower.startsWith('o3')) return 'openai';
   if (modelLower.startsWith('claude-')) return 'anthropic';
@@ -587,13 +594,13 @@ const DEFAULT_AGENTS: FactoryAgent[] = [
     desc: 'تحويل وثيقة الـ PRD المعتمدة إلى مواصفات تصميم وشاشات واجهات عصرية متجاوبة تدعم العربية (RTL) بنظام Tailwind CSS ومحرك Google Stitch التفاعلي.',
     providerId: 'prov-stitch',
     providerName: 'Google Stitch (UI/UX Design AI)',
-    model: 'google-stitch-v2-ui',
+    model: 'GEMINI_3_FLASH',
     apiKey: '',
     useProviderKey: true,
     temperature: 0.6,
     maxTokens: 4096,
     enabled: true,
-    systemPrompt: 'أنت محرك Google Stitch المتخصص في تصميم واجهات المستخدم وتجربة الاستخدام (Gate 2 UI/UX Design Agent) في مصنع OGroup AI Factory. مهمتك تحويل وثيقة المتطلبات المعتمدة إلى تصميم واجهات تفاعلي حي داخل Stitch Canvas ونظام ألوان وتخطيط شاشات متجاوب يدعم العربية (RTL) باستخدام Tailwind CSS.',
+    systemPrompt: 'أنت محرك Google Stitch المتخصص في تصميم واجهات المستخدم وتجربة الاستخدام (Gate 2 UI/UX Design Agent) في مصنع OGroup AI Factory. مهمتك تحويل وثيقة المتطلبات المعتمدة إلى تصميم واجهات تفاعلي حي عبر خدمة Google Stitch MCP الرسمية ونظام ألوان وتخطيط شاشات متجاوب يدعم العربية (RTL) باستخدام Tailwind CSS.',
   },
   {
     gate: 3,
@@ -800,9 +807,9 @@ export default function App() {
   const [isAddProviderOpen, setIsAddProviderOpen] = useState(false);
   const [newProviderName, setNewProviderName] = useState('');
   const [newProviderType, setNewProviderType] = useState<AIProviderEngineType>('stitch');
-  const [newProviderModel, setNewProviderModel] = useState('google-stitch-v2-ui');
+  const [newProviderModel, setNewProviderModel] = useState('GEMINI_3_FLASH');
   const [newProviderKey, setNewProviderKey] = useState('');
-  const [newProviderEndpoint, setNewProviderEndpoint] = useState('https://stitch.withgoogle.com/api/v1/generate');
+  const [newProviderEndpoint, setNewProviderEndpoint] = useState('https://stitch.googleapis.com/mcp');
   const [newProviderAssignGate, setNewProviderAssignGate] = useState<number>(0);
 
   // Billing & Subscription State
@@ -1026,7 +1033,7 @@ export default function App() {
             status: data.status,
             reply: data.error || data.reply || 'يتطلب ربط تكامل خارجي حقيقي (Integration Required)',
             latencyMs: data.latencyMs || 0,
-            model: data.model || targetProvider?.model || 'google-stitch-v2-ui',
+            model: data.model || targetProvider?.model || 'GEMINI_3_FLASH',
             keySource: data.keySource || data.status,
           }
         }));
@@ -1075,7 +1082,7 @@ export default function App() {
   };
 
   const ENGINE_PRESETS: Record<AIProviderEngineType, { label: string; model: string; endpoint: string }> = {
-    stitch: { label: 'Google Stitch (UI/UX Design Engine)', model: 'google-stitch-v2-ui', endpoint: 'https://stitch.withgoogle.com/api/v1/generate' },
+    stitch: { label: 'Google Stitch (Official MCP UI/UX Design Service)', model: 'GEMINI_3_FLASH', endpoint: 'https://stitch.googleapis.com/mcp' },
     gemini: { label: 'Google Gemini SDK / Vertex AI', model: 'gemini-3.8-flash', endpoint: 'https://generativelanguage.googleapis.com/v1beta' },
     openai: { label: 'OpenAI Platform (GPT-4o / o3 / o1)', model: 'gpt-4o-2024-11-20', endpoint: 'https://api.openai.com/v1/chat/completions' },
     anthropic: { label: 'Anthropic Claude Direct API', model: 'claude-3-7-sonnet', endpoint: 'https://api.anthropic.com/v1/messages' },
@@ -1465,7 +1472,7 @@ export default function App() {
       mistral: 'codestral-latest',
       xai: 'grok-3',
       openrouter: 'openrouter/auto',
-      stitch: 'google-stitch-v2-ui',
+      stitch: 'GEMINI_3_FLASH',
     };
     const resolvedModel = modelName || byokModel || defaultModels[providerId] || 'gemini-3.8-flash';
     const keyToSave = apiKeyValue !== undefined ? apiKeyValue : byokApiKey;
@@ -1905,14 +1912,14 @@ export default function App() {
 
         showToast(`تم اعتماد وقفل وثيقة المتطلبات (v${approval.approvedVersion}) والانتقال إلى البوابة 2 بنجاح!`);
 
-        // Always synthesize/refresh Stitch design from the newly approved Gate 1 PRD when entering Gate 2
+        // Trigger remote Google Stitch project & screen generation from the newly approved Gate 1 PRD when entering Gate 2
         try {
           setIsAiProcessing(true);
           const g2Res = await fetch(`/api/projects/${activeProject.id}/gates/2/generate`, {
             method: 'POST',
             headers: authHeaders(),
             body: JSON.stringify({
-              prompt: `قم بتوليد وتحديث تصميم الواجهات التفاعلية والشاشات لمشروع "${approval.document.projectName}" (${approval.document.overview}) على لوحة Google Stitch Canvas استناداً إلى وثيقة المتطلبات المعتمدة.`,
+              prompt: `قم بتوليد وتحديث تصميم الواجهات التفاعلية والشاشات لمشروع "${approval.document.projectName}" (${approval.document.overview}) عبر خدمة Google Stitch MCP استناداً إلى وثيقة المتطلبات المعتمدة.`,
             }),
           });
           const g2Data = await g2Res.json();
@@ -1926,9 +1933,15 @@ export default function App() {
               setGate2ActiveScreenId(firstScreenId);
               setStitchScreenTab(`stitch-screen:${firstScreenId}`);
             }
+          } else if (!g2Res.ok) {
+            setGate1ErrorBanner(
+              g2Data.error || 'تعذر توليد شاشات التصميم عبر خدمة Google Stitch MCP. يرجى التحقق من مفتاح Stitch API والمحاولة مجدداً.'
+            );
           }
-        } catch {
-          // Non-blocking if manual generation is preferred
+        } catch (err: any) {
+          setGate1ErrorBanner(
+            err?.message || 'تعذر الاتصال بخدمة Google Stitch MCP لتوليد شاشات التصميم.'
+          );
         } finally {
           setIsAiProcessing(false);
         }
@@ -2971,10 +2984,10 @@ export default function App() {
                                     className="w-full h-10 px-3 rounded-xl bg-slate-50 border border-slate-200 font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500"
                                     dir="ltr"
                                   >
-                                    <optgroup label="Google Stitch (UI/UX Design AI)">
-                                      <option value="google-stitch-v2-ui">google-stitch-v2-ui (Google Stitch Design)</option>
-                                      <option value="google-stitch-design-pro">google-stitch-design-pro (Stitch Pro RTL)</option>
-                                      <option value="google-stitch-figma-rtl">google-stitch-figma-rtl (Stitch + Tailwind)</option>
+                                    <optgroup label="Google Stitch MCP (Official UI/UX Design Models)">
+                                      <option value="GEMINI_3_FLASH">GEMINI_3_FLASH (Google Stitch Default)</option>
+                                      <option value="GEMINI_3_1_PRO">GEMINI_3_1_PRO (Google Stitch Pro)</option>
+                                      <option value="GEMINI_3_PRO">GEMINI_3_PRO (Google Stitch 3 Pro)</option>
                                     </optgroup>
                                     <optgroup label="Google Gemini">
                                       <option value="gemini-3.8-flash">gemini-3.8-flash (Recommended)</option>
@@ -3151,7 +3164,7 @@ export default function App() {
                                         🎨 Google Stitch UI/UX & Canvas Architect
                                       </span>
                                       <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-[10px] font-bold">
-                                        ● متصل بلوحة التصميم التفاعلية (stitch://live-canvas)
+                                        ● خدمة Google Stitch MCP الرسمية (https://stitch.googleapis.com/mcp)
                                       </span>
                                     </div>
                                     <h4 className="text-sm font-black text-white">
@@ -3241,7 +3254,9 @@ export default function App() {
                                       </span>
                                     </div>
                                     <div className="px-2.5 py-0.5 rounded bg-slate-800 text-orange-300 font-mono text-[10px]" dir="ltr">
-                                      stitch://live-canvas/{activeProject?.id || 'studio'}/{gate2Design ? (gate2ActiveScreenId || gate2Design.screens[0]?.id || 'dashboard') : stitchScreenTab}
+                                      {gate2Design?.stitchMetadata?.remoteProjectId
+                                        ? `stitch-mcp://projects/${gate2Design.stitchMetadata.remoteProjectId}/screens/${gate2ActiveScreenId || gate2Design.screens[0]?.remoteScreenId || 'main'}`
+                                        : 'https://stitch.googleapis.com/mcp'}
                                     </div>
                                     <div className="flex items-center gap-1.5">
                                       {gate2Design && gate2Design.screens.length > 0 ? (
@@ -5529,7 +5544,6 @@ export default function App() {
                           factoryAgents[0] ||
                           DEFAULT_AGENTS[1];
 
-                        // Authoritative Gate 1 PRD source for this project (never falls back to unrelated industries)
                         const prdSource: RequirementsDocument =
                           gate1ApprovedArtifact?.document ||
                           gate1Document || {
@@ -5541,179 +5555,238 @@ export default function App() {
                               'إدارة الحسابات والصلاحيات',
                               'لوحة تحكم رئيسية لمتابعة العمليات',
                               'إدارة السجلات والطلبات',
-                              'التقارير التحليلية المتقدمة',
                             ],
-                            userJourneys: [
-                              'تسجيل الدخول واستعراض لوحة المؤشرات الحية',
-                              'إدخال ومعالجة العمليات الأساسية في النظام',
-                              'مراجعة التقارير التحليلية واعتماد المخرجات',
-                            ],
+                            userJourneys: ['تسجيل الدخول واستعراض لوحة المؤشرات الحية'],
                             businessRules: ['التحقق من الصلاحيات وصحة البيانات قبل الحفظ'],
-                            dataRequirements: ['المستخدمون والصلاحيات', 'السجلات والعمليات الأساسية', 'التقارير'],
+                            dataRequirements: ['المستخدمون والصلاحيات', 'السجلات والعمليات الأساسية'],
                             integrations: ['بوابة الإشعارات والربط البرمجي API'],
                             acceptanceCriteria: ['عمل جميع الشاشات والنماذج وفق المتطلبات المعتمدة'],
                             assumptions: ['توفر اتصال إنترنت مستقر'],
                             exclusions: [],
                           };
 
-                        const prdFeatures =
-                          prdSource.features && prdSource.features.length > 0
-                            ? prdSource.features
-                            : ['إدارة العمليات الرئيسية', 'متابعة الطلبات والسجلات', 'التقارير التحليلية'];
-                        const prdRoles =
-                          prdSource.userRoles && prdSource.userRoles.length > 0
-                            ? prdSource.userRoles
-                            : ['مدير النظام', 'مشرف العمليات', 'المستخدم'];
-                        const prdEntities =
-                          prdSource.dataRequirements && prdSource.dataRequirements.length > 0
-                            ? prdSource.dataRequirements
-                            : ['السجلات الأساسية', 'الطلبات والعمليات', 'التقارير'];
-                        const prdJourneys =
-                          prdSource.userJourneys && prdSource.userJourneys.length > 0
-                            ? prdSource.userJourneys
-                            : ['تسجيل الدخول واستعراض لوحة التحكم', 'إضافة وتنفيذ عملية جديدة', 'اعتماد المخرجات والتقارير'];
-                        const prdRules =
-                          prdSource.businessRules && prdSource.businessRules.length > 0
-                            ? prdSource.businessRules
-                            : ['التحقق من صلاحيات الدور الوظيفي قبل التنفيذ'];
-                        const prdIntegrations =
-                          prdSource.integrations && prdSource.integrations.length > 0
-                            ? prdSource.integrations
-                            : ['الربط البرمجي والإشعارات'];
-                        const prdObjectives =
-                          prdSource.objectives && prdSource.objectives.length > 0
-                            ? prdSource.objectives
-                            : [prdSource.overview];
+                        const screensList = gate2Design?.screens || [];
+                        const activeScr =
+                          screensList.find(s => s.id === gate2ActiveScreenId) ||
+                          screensList.find(s => `stitch-screen:${s.id}` === stitchScreenTab) ||
+                          screensList[0] ||
+                          null;
 
-                        const selectedFeature = stitchHeroType || prdFeatures[0];
-                        const selectedRole = stitchHeroLocation || prdRoles[0];
-                        const selectedEntity = stitchSelectedSlot || prdEntities[0];
-                        const activeRoleFilter = stitchSelectedDay || 'الكل';
-
-                        // Combine user-added session records with dynamic records derived from Gate 1 PRD
-                        const defaultProjectRecords = prdFeatures.map((feat, idx) => ({
-                          id: `REC-${101 + idx}`,
-                          client: `${prdEntities[idx % prdEntities.length]} — ${prdSource.projectName}`,
-                          property: feat,
-                          time: prdIntegrations[idx % prdIntegrations.length] || 'مفعل آنياً',
-                          agent: prdRoles[idx % prdRoles.length],
-                          status: (idx % 3 === 0 ? 'مؤكد' : idx % 3 === 1 ? 'مكتمل' : 'قيد التأكيد') as
-                            | 'مؤكد'
-                            | 'قيد التأكيد'
-                            | 'مكتمل',
-                        }));
-                        const allProjectRecords = [...stitchAppointments, ...defaultProjectRecords];
-                        const filteredProjectRecords =
-                          activeRoleFilter === 'الكل'
-                            ? allProjectRecords
-                            : allProjectRecords.filter(
-                                r => r.agent === activeRoleFilter || r.property === activeRoleFilter
-                              );
-
-                        const themeMap = {
-                          orange: {
-                            primaryBg: 'bg-orange-600',
-                            primaryHover: 'hover:bg-orange-700',
-                            lightBg: 'bg-orange-50',
-                            lightText: 'text-orange-700',
-                            borderAccent: 'border-orange-200',
-                            canvasBg: 'bg-slate-50 text-slate-800',
-                            cardBg: 'bg-white border-slate-200 text-slate-800',
-                          },
-                          blue: {
-                            primaryBg: 'bg-blue-600',
-                            primaryHover: 'hover:bg-blue-700',
-                            lightBg: 'bg-blue-50',
-                            lightText: 'text-blue-700',
-                            borderAccent: 'border-blue-200',
-                            canvasBg: 'bg-slate-50 text-slate-800',
-                            cardBg: 'bg-white border-slate-200 text-slate-800',
-                          },
-                          emerald: {
-                            primaryBg: 'bg-emerald-600',
-                            primaryHover: 'hover:bg-emerald-700',
-                            lightBg: 'bg-emerald-50',
-                            lightText: 'text-emerald-700',
-                            borderAccent: 'border-emerald-200',
-                            canvasBg: 'bg-slate-50 text-slate-800',
-                            cardBg: 'bg-white border-slate-200 text-slate-800',
-                          },
-                          violet: {
-                            primaryBg: 'bg-violet-600',
-                            primaryHover: 'hover:bg-violet-700',
-                            lightBg: 'bg-violet-50',
-                            lightText: 'text-violet-700',
-                            borderAccent: 'border-violet-200',
-                            canvasBg: 'bg-slate-50 text-slate-800',
-                            cardBg: 'bg-white border-slate-200 text-slate-800',
-                          },
-                          dark: {
-                            primaryBg: 'bg-orange-500',
-                            primaryHover: 'hover:bg-orange-600',
-                            lightBg: 'bg-slate-800',
-                            lightText: 'text-orange-400',
-                            borderAccent: 'border-slate-700',
-                            canvasBg: 'bg-slate-950 text-slate-100',
-                            cardBg: 'bg-slate-900 border-slate-800 text-slate-100',
-                          },
-                        }[stitchTheme];
+                        const isCodeInspectionMode = stitchScreenTab === 'code';
 
                         const viewportWidthClass =
                           stitchViewport === 'mobile'
                             ? 'max-w-[390px] mx-auto'
                             : stitchViewport === 'tablet'
-                            ? 'max-w-[680px] mx-auto'
+                            ? 'max-w-[768px] mx-auto'
                             : 'w-full';
+
+                        const matchingUiFile =
+                          activeScr && gate2Design?.uiFiles
+                            ? gate2Design.uiFiles.find(
+                                f => f.screenId === activeScr.id && f.fileType === 'html'
+                              ) ||
+                              gate2Design.uiFiles.find(f => f.screenId === activeScr.id) ||
+                              gate2Design.uiFiles[0]
+                            : gate2Design?.uiFiles?.[0];
 
                         return (
                           <div className="flex-1 flex flex-col space-y-3">
-                            {/* Approved Gate 1 Artifact Banner preserved for Gate 2 */}
-                            {gate1ApprovedArtifact && (
-                              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-2">
-                                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                                    <span className="text-xs font-bold text-emerald-900">
-                                      وثيقة المتطلبات المعتمدة والمقفلة من البوابة الأولى (الإصدار المعتمد v{gate1ApprovedArtifact.approvedVersion})
-                                    </span>
-                                  </div>
-                                  <span className="text-[10px] font-mono text-emerald-700" dir="ltr">
-                                    {gate1ApprovedArtifact.approvedAt}
-                                  </span>
-                                </div>
-                                <div className="text-xs text-emerald-800">
-                                  <strong>{gate1ApprovedArtifact.document.projectName}:</strong> {gate1ApprovedArtifact.document.overview}
-                                </div>
-                                <div className="flex flex-wrap gap-1.5 pt-1">
-                                  {gate1ApprovedArtifact.document.features.map((feat, i) => (
-                                    <span key={i} className="px-2.5 py-0.5 rounded-lg bg-white border border-emerald-200 text-[11px] text-emerald-900 font-semibold">
-                                      ✓ {feat}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Google Stitch Designer Engine Control Bar */}
+                            {/* Gate 2 Stitch Workspace Control Bar */}
                             <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3 shadow-2xs">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <div>
-                                  <div className="flex items-center gap-2 mb-1">
+                              <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
                                     <span className="px-2.5 py-0.5 rounded-full bg-orange-50 border border-orange-200 text-orange-700 text-[10px] font-black">
-                                      🎨 مصمم البوابة الثانية: {currentGateAgent.providerName} ({currentGateAgent.model})
+                                      🎨 {currentGateAgent.providerName} ({currentGateAgent.model})
                                     </span>
-                                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold">
-                                      ● متصل بمتطلبات البوابة 1 ولوحة Stitch Canvas الحية
-                                    </span>
+                                    {gate2Version > 0 && (
+                                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold">
+                                        ● الإصدار v{gate2Version} {gate2Locked ? '(معتمد ومقفل)' : '(جاهز للمراجعة)'}
+                                      </span>
+                                    )}
+                                    {gate2Design?.stitchMetadata?.remoteProjectId && (
+                                      <span
+                                        className="px-2.5 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-slate-700 text-[10px] font-mono font-bold"
+                                        dir="ltr"
+                                      >
+                                        Stitch Project: {gate2Design.stitchMetadata.remoteProjectId}
+                                      </span>
+                                    )}
                                   </div>
                                   <h4 className="text-xs font-black text-slate-900">
-                                    مخرجات مصمم Google Stitch المهيكلة لمشروع "{prdSource.projectName}" ({gate2Version > 0 ? `الإصدار v${gate2Version}` : 'مرتبط بمتطلبات البوابة 1'})
+                                    لوحة Google Stitch Canvas — {prdSource.projectName}
                                   </h4>
                                   <p className="text-[11px] text-slate-500">
                                     {gate2Design
-                                      ? `${gate2Design.designSummary} (${gate2Design.screens.length} شاشات مهيكلة، ${gate2Design.components.length} مكونات معروضة داخل لوحة Stitch التفاعلية أدناه)`
-                                      : `تم استيراد متطلبات "${prdSource.projectName}" (${prdFeatures.length} ميزات، ${prdRoles.length} أدوار، ${prdEntities.length} كيانات بيانات) مباشرة إلى لوحة Stitch التفاعلية.`}
+                                      ? `${gate2Design.designSummary} (${screensList.length} شاشات مولدة من متطلبات البوابة الأولى v${gate1ApprovedArtifact?.approvedVersion || gate1Version})`
+                                      : `بانتظار توليد شاشات مشروع "${prdSource.projectName}" عبر خدمة Google Stitch MCP استناداً إلى وثيقة المتطلبات المعتمدة.`}
                                   </p>
+                                </div>
+
+                                {/* Viewport Selector + Preview/Code Toggle + Regenerate Button */}
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-[11px] font-bold">
+                                    <button
+                                      type="button"
+                                      onClick={() => setStitchViewport('desktop')}
+                                      className={`px-2.5 py-1 rounded-lg transition ${
+                                        stitchViewport === 'desktop'
+                                          ? 'bg-white text-slate-900 shadow-2xs'
+                                          : 'text-slate-500 hover:text-slate-800'
+                                      }`}
+                                    >
+                                      سطح المكتب
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setStitchViewport('tablet')}
+                                      className={`px-2.5 py-1 rounded-lg transition ${
+                                        stitchViewport === 'tablet'
+                                          ? 'bg-white text-slate-900 shadow-2xs'
+                                          : 'text-slate-500 hover:text-slate-800'
+                                      }`}
+                                    >
+                                      جهاز لوحي
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setStitchViewport('mobile')}
+                                      className={`px-2.5 py-1 rounded-lg transition ${
+                                        stitchViewport === 'mobile'
+                                          ? 'bg-white text-slate-900 shadow-2xs'
+                                          : 'text-slate-500 hover:text-slate-800'
+                                      }`}
+                                    >
+                                      هاتف ذكي
+                                    </button>
+                                  </div>
+
+                                  {screensList.length > 0 && (
+                                    <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-[11px] font-bold">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (activeScr) {
+                                            setStitchScreenTab(`stitch-screen:${activeScr.id}`);
+                                          } else {
+                                            setStitchScreenTab('preview');
+                                          }
+                                        }}
+                                        className={`px-2.5 py-1 rounded-lg transition ${
+                                          !isCodeInspectionMode
+                                            ? 'bg-white text-slate-900 shadow-2xs'
+                                            : 'text-slate-500 hover:text-slate-800'
+                                        }`}
+                                      >
+                                        معاينة الواجهة الحية
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setStitchScreenTab('code')}
+                                        className={`px-2.5 py-1 rounded-lg transition ${
+                                          isCodeInspectionMode
+                                            ? 'bg-white text-slate-900 shadow-2xs'
+                                            : 'text-slate-500 hover:text-slate-800'
+                                        }`}
+                                      >
+                                        فحص كود الواجهة (UI Code)
+                                      </button>
+                                    </div>
+                                  )}
+
+                                  {!gate2Locked && (
+                                    <button
+                                      type="button"
+                                      disabled={isAiProcessing}
+                                      onClick={() =>
+                                        executeStageAgentPrompt(
+                                          `قم بتوليد وتحديث تصميم الواجهات التفاعلية والشاشات لمشروع "${prdSource.projectName}" (${prdSource.overview}) عبر خدمة Google Stitch MCP استناداً إلى وثيقة المتطلبات المعتمدة.`
+                                        )
+                                      }
+                                      className="px-3.5 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs transition flex items-center gap-1.5"
+                                    >
+                                      <Sparkles className="w-3.5 h-3.5" />
+                                      <span>
+                                        {isAiProcessing
+                                          ? 'جاري التوليد عبر Stitch...'
+                                          : gate2Design
+                                          ? 'إعادة توليد / تحديث التصميم عبر Stitch'
+                                          : 'توليد التصميم عبر Google Stitch'}
+                                      </span>
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Screen Selector Bar (Only when actual Stitch screens exist) */}
+                              {screensList.length > 0 && (
+                                <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-[11px] font-bold text-slate-500 ml-1">
+                                      الشاشات المولدة ({screensList.length}):
+                                    </span>
+                                    {screensList.map((scr, sIdx) => {
+                                      const isSelected = activeScr?.id === scr.id && !isCodeInspectionMode;
+                                      return (
+                                        <button
+                                          key={scr.id}
+                                          type="button"
+                                          onClick={() => {
+                                            setGate2ActiveScreenId(scr.id);
+                                            setStitchScreenTab(`stitch-screen:${scr.id}`);
+                                          }}
+                                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                                            isSelected
+                                              ? 'bg-orange-600 text-white shadow-2xs'
+                                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                                          }`}
+                                        >
+                                          <span>
+                                            {sIdx + 1}. {scr.name}
+                                          </span>
+                                          <span
+                                            className={`text-[10px] font-mono ${
+                                              isSelected ? 'text-orange-100' : 'text-slate-400'
+                                            }`}
+                                            dir="ltr"
+                                          >
+                                            {scr.route}
+                                          </span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+
+                                  {!gate2Locked && activeScr && (
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        disabled={isAiProcessing}
+                                        onClick={() =>
+                                          executeStageAgentPrompt(
+                                            `قم بتحسين وتطوير تصميم شاشة "${activeScr.name}" (${activeScr.route}) مع تعزيز وضوح النماذج والأزرار والتباين اللوني.`
+                                          )
+                                        }
+                                        className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold transition"
+                                      >
+                                        ✨ تحسين هذه الشاشة في Stitch
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Error Banner if Remote Stitch Call Failed */}
+                            {gate1ErrorBanner && (
+                              <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 text-xs text-red-800">
+                                <div className="space-y-1">
+                                  <div className="font-black flex items-center gap-1.5">
+                                    <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                                    <span>تعذر إتمام عملية Google Stitch MCP عن بُعد:</span>
+                                  </div>
+                                  <p className="leading-relaxed">{gate1ErrorBanner}</p>
                                 </div>
                                 {!gate2Locked && (
                                   <button
@@ -5721,871 +5794,153 @@ export default function App() {
                                     disabled={isAiProcessing}
                                     onClick={() =>
                                       executeStageAgentPrompt(
-                                        `قم بتوليد وتحديث تصميم الواجهات التفاعلية والشاشات لمشروع "${prdSource.projectName}" (${prdSource.overview}) على لوحة Google Stitch Canvas استناداً إلى وثيقة المتطلبات المعتمدة.`
+                                        `قم بتوليد وتحديث تصميم الواجهات التفاعلية والشاشات لمشروع "${prdSource.projectName}" عبر خدمة Google Stitch MCP.`
                                       )
                                     }
-                                    className="px-3.5 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs transition flex items-center gap-1.5"
+                                    className="px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold shrink-0"
                                   >
-                                    <Sparkles className="w-3.5 h-3.5" />
-                                    <span>{gate2Design ? 'تحديث التصميم عبر Google Stitch' : 'توليد التصميم على لوحة Stitch التفاعلية'}</span>
+                                    إعادة المحاولة
                                   </button>
                                 )}
                               </div>
+                            )}
 
-                              {gate2Design && gate2Design.screens.length > 0 && (
-                                <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 flex-wrap">
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className="text-[11px] font-bold text-slate-500 ml-1">شاشات المشروع المولدة في Stitch Canvas:</span>
-                                    {gate2Design.screens.map((scr, sIdx) => {
-                                      const tabKey = `stitch-screen:${scr.id}`;
-                                      const isSelected = stitchScreenTab === tabKey;
-                                      return (
-                                        <button
-                                          key={scr.id}
-                                          type="button"
-                                          onClick={() => {
-                                            setGate2ActiveScreenId(scr.id);
-                                            setStitchScreenTab(tabKey);
-                                          }}
-                                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                                            isSelected
-                                              ? 'bg-orange-600 text-white shadow-2xs'
-                                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                                          }`}
-                                        >
-                                          🎨 {sIdx + 1}. {scr.name} ({scr.route})
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                  <div className="flex items-center gap-2 text-[11px] font-mono" dir="ltr">
-                                    <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
-                                      Primary: {gate2Design.visualTokens?.primaryColor || '#FF6B00'}
-                                    </span>
-                                    <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
-                                      Secondary: {gate2Design.visualTokens?.secondaryColor || '#0F172A'}
-                                    </span>
+                            {/* Loading State */}
+                            {isAiProcessing && (
+                              <div className="bg-slate-900 text-white rounded-2xl p-5 border border-slate-800 flex items-center justify-between gap-4">
+                                <div className="flex items-center gap-3">
+                                  <RefreshCcw className="w-5 h-5 text-orange-400 animate-spin shrink-0" />
+                                  <div>
+                                    <div className="text-xs font-black">
+                                      جاري الاتصال بخدمة Google Stitch MCP الرسمية (https://stitch.googleapis.com/mcp)...
+                                    </div>
+                                    <div className="text-[11px] text-slate-400 mt-0.5">
+                                      يتم إنشاء/تحديث مشروع Stitch وتوليد شاشات "{prdSource.projectName}" واسترجاع ملفات الواجهة الحقيقية.
+                                    </div>
                                   </div>
                                 </div>
-                              )}
-                            </div>
-
-                            {/* Stitch Studio Screen Tabs & Theme Bar — 100% Project-Specific */}
-                            <div className="bg-white rounded-2xl p-3 border border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs shadow-2xs">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <button
-                                  type="button"
-                                  onClick={() => setStitchScreenTab('landing')}
-                                  className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 ${
-                                    stitchScreenTab === 'landing'
-                                      ? 'bg-orange-600 text-white shadow-xs'
-                                      : 'bg-orange-50 text-orange-800 border border-orange-200 hover:bg-orange-100'
-                                  }`}
-                                >
-                                  <Sparkles className="w-3.5 h-3.5" />
-                                  <span>1. الواجهة الرئيسية ({prdSource.projectName})</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setStitchScreenTab('dashboard')}
-                                  className={`px-3 py-1.5 rounded-xl font-bold transition ${
-                                    stitchScreenTab === 'dashboard' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                  }`}
-                                >
-                                  2. لوحة التحكم والعمليات ({prdFeatures[0] || 'العمليات'})
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setStitchScreenTab('booking')}
-                                  className={`px-3 py-1.5 rounded-xl font-bold transition ${
-                                    stitchScreenTab === 'booking' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                  }`}
-                                >
-                                  3. نموذج الإدخال ({prdEntities[0] || 'عملية جديدة'})
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setStitchScreenTab('portal')}
-                                  className={`px-3 py-1.5 rounded-xl font-bold transition ${
-                                    stitchScreenTab === 'portal' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                  }`}
-                                >
-                                  4. الوحدات والبيانات ({prdFeatures.length})
-                                </button>
-
-                                {/* Persisted Stitch Project Screens Connected Directly to Canvas Tabs */}
-                                {gate2Design &&
-                                  gate2Design.screens.map((scr, sIdx) => {
-                                    const tabKey = `stitch-screen:${scr.id}`;
-                                    return (
-                                      <button
-                                        key={tabKey}
-                                        type="button"
-                                        onClick={() => {
-                                          setGate2ActiveScreenId(scr.id);
-                                          setStitchScreenTab(tabKey);
-                                        }}
-                                        className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 ${
-                                          stitchScreenTab === tabKey
-                                            ? 'bg-orange-600 text-white shadow-xs'
-                                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                                        }`}
-                                      >
-                                        <span>شاشة Stitch {sIdx + 1}: {scr.name}</span>
-                                      </button>
-                                    );
-                                  })}
-
-                                {/* Dynamically Added Pages from Gate 2 Chat */}
-                                {stitchCustomPages.map((cp, idx) => (
-                                  <div key={cp.id} className="inline-flex items-center">
-                                    <button
-                                      type="button"
-                                      onClick={() => setStitchScreenTab(cp.id)}
-                                      className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 ${
-                                        stitchScreenTab === cp.id
-                                          ? 'bg-emerald-600 text-white shadow-xs'
-                                          : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
-                                      }`}
-                                    >
-                                      <span>{idx + 5}. ✨ {cp.title}</span>
-                                    </button>
-                                  </div>
-                                ))}
-
-                                <button
-                                  type="button"
-                                  onClick={() => setStitchScreenTab('code')}
-                                  className={`px-3 py-1.5 rounded-xl font-bold transition ${
-                                    stitchScreenTab === 'code' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                  }`}
-                                >
-                                  كود الواجهة (Tailwind)
-                                </button>
-                              </div>
-
-                              {/* Live Color Palette Dots */}
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[11px] text-slate-400 font-semibold ml-1">الألوان:</span>
-                                {([
-                                  { id: 'orange', color: 'bg-orange-500', label: 'برتقالي' },
-                                  { id: 'blue', color: 'bg-blue-600', label: 'أزرق' },
-                                  { id: 'emerald', color: 'bg-emerald-600', label: 'زمردي' },
-                                  { id: 'violet', color: 'bg-violet-600', label: 'بنفسجي' },
-                                  { id: 'dark', color: 'bg-slate-900', label: 'داكن' },
-                                ] as const).map(t => (
-                                  <button
-                                    key={t.id}
-                                    type="button"
-                                    title={t.label}
-                                    onClick={() => setStitchTheme(t.id)}
-                                    className={`w-5 h-5 rounded-full ${t.color} transition ${
-                                      stitchTheme === t.id ? 'ring-2 ring-offset-2 ring-slate-900 scale-110' : 'opacity-70 hover:opacity-100'
-                                    }`}
-                                  />
-                                ))}
-                              </div>
-                            </div>
-
-                            {/* LIVE INTERACTIVE STITCH CANVAS WINDOW */}
-                            <div className={`${viewportWidthClass} flex-1 rounded-3xl border-2 border-slate-300/90 shadow-lg overflow-hidden flex flex-col transition-all duration-300 ${themeMap.canvasBg}`}>
-                              {/* Simulated Browser Top Bar */}
-                              <div className="bg-slate-900 text-slate-300 px-4 py-2.5 flex items-center justify-between text-[11px] border-b border-slate-800">
-                                <div className="flex items-center gap-2">
-                                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span>
-                                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block"></span>
-                                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
-                                  <span className="mr-2 font-bold text-white">{prdSource.projectName}</span>
-                                </div>
-                                <div className="px-3 py-0.5 rounded-md bg-slate-800 text-slate-400 font-mono text-[10px]" dir="ltr">
-                                  stitch://live-canvas/{activeProject.id}/{stitchScreenTab}
-                                </div>
-                                <span className="text-[10px] text-emerald-400 font-semibold">
-                                  ● محرك Google Stitch ({currentGateAgent.model}) • معاينة حية تفاعلية (RTL)
+                                <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-orange-300 font-mono text-[10px]" dir="ltr">
+                                  MCP • {currentGateAgent.model}
                                 </span>
                               </div>
+                            )}
 
-                              {/* Inner Designed Application Header / Sticky Navbar — Project-Driven */}
-                              <div className={`px-5 py-3.5 border-b flex flex-wrap items-center justify-between gap-3 ${themeMap.cardBg}`}>
-                                <div className="flex items-center gap-2.5">
-                                  <div className={`w-9 h-9 rounded-xl ${themeMap.primaryBg} text-white flex items-center justify-center font-black text-sm shadow-xs`}>
-                                    {(prdSource.projectName || 'مشروع').slice(0, 4)}
+                            {/* Main Stitch Canvas Area */}
+                            {gate2Design && activeScr ? (
+                              <div
+                                className={`${viewportWidthClass} flex-1 rounded-3xl border-2 border-slate-300 bg-white shadow-md overflow-hidden flex flex-col transition-all duration-300`}
+                              >
+                                {/* Minimal Screen Metadata Bar (No duplicate app navbar) */}
+                                <div className="bg-slate-900 text-white px-4 py-2.5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block"></span>
+                                    <span className="font-black">{activeScr.name}</span>
+                                    <span className="text-slate-400 text-[11px]">— {activeScr.purpose}</span>
                                   </div>
-                                  <div>
-                                    <div className="font-black text-xs">{prdSource.projectName}</div>
-                                    <div className="text-[10px] opacity-60">{prdSource.overview}</div>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-3 text-[11px] font-bold flex-wrap">
-                                  <button
-                                    type="button"
-                                    onClick={() => setStitchScreenTab('landing')}
-                                    className={`transition ${stitchScreenTab === 'landing' ? themeMap.lightText : 'opacity-65 hover:opacity-100'}`}
-                                  >
-                                    الرئيسية
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setStitchScreenTab('dashboard')}
-                                    className={`transition ${stitchScreenTab === 'dashboard' ? themeMap.lightText : 'opacity-65 hover:opacity-100'}`}
-                                  >
-                                    لوحة التحكم والعمليات
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setStitchScreenTab('portal')}
-                                    className={`transition ${stitchScreenTab === 'portal' ? themeMap.lightText : 'opacity-65 hover:opacity-100'}`}
-                                  >
-                                    الوحدات والبيانات ({prdFeatures.length})
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setStitchScreenTab('booking')}
-                                    className={`px-3 py-1.5 rounded-xl text-white text-[11px] font-bold shadow-xs transition ${themeMap.primaryBg} ${themeMap.primaryHover}`}
-                                  >
-                                    + إضافة {prdEntities[0] || 'عملية جديدة'}
-                                  </button>
-                                </div>
-                              </div>
-
-                              {/* GOOGLE STITCH GENERATED PROJECT SCREENS RENDERED DIRECTLY IN THE LIVE CANVAS */}
-                              {stitchScreenTab.startsWith('stitch-screen:') && gate2Design && (() => {
-                                const requestedId = stitchScreenTab.replace('stitch-screen:', '');
-                                const activeScr =
-                                  gate2Design.screens.find(s => s.id === requestedId) ||
-                                  gate2Design.screens.find(s => s.id === gate2ActiveScreenId) ||
-                                  gate2Design.screens[0];
-                                if (!activeScr) return null;
-                                return (
-                                  <div className="flex-1 flex flex-col overflow-y-auto">
-                                    <div className="px-5 py-2.5 bg-slate-900/95 text-white border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
-                                      <div className="flex items-center gap-2">
-                                        <span className="px-2 py-0.5 rounded bg-orange-500/20 text-orange-300 border border-orange-400/30 text-[10px] font-bold">
-                                          شاشة مصممة بواسطة Google Stitch
-                                        </span>
-                                        <span className="font-black text-white">{activeScr.name}</span>
-                                        <span className="text-slate-400 text-[11px]">— {activeScr.summary}</span>
-                                      </div>
-                                      <div className="flex items-center gap-2 font-mono text-[10px]" dir="ltr">
-                                        <span className="px-2 py-0.5 rounded bg-slate-800 text-teal-300">
-                                          Route: {activeScr.route}
-                                        </span>
-                                        <span className="px-2 py-0.5 rounded bg-slate-800 text-amber-300">
-                                          Role: {activeScr.primaryRole}
-                                        </span>
-                                        <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300">
-                                          Layout: {activeScr.layoutType}
-                                        </span>
-                                      </div>
-                                    </div>
-
-                                    <div className="w-full h-[540px] bg-white border-b border-slate-200">
-                                      <iframe
-                                        title={`gate2-live-stitch-canvas-${activeScr.id}`}
-                                        srcDoc={activeScr.htmlContent}
-                                        sandbox="allow-scripts"
-                                        className="w-full h-full border-0"
-                                      />
-                                    </div>
-
-                                    {/* Interactive Screen Architecture, Sections & User Flows inside Stitch Canvas */}
-                                    <div className="p-4 bg-slate-50 space-y-3 text-xs">
-                                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                        <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2">
-                                          <div className="font-black text-slate-900 flex items-center justify-between">
-                                            <span>أقسام الشاشة ({(activeScr.sections || []).length})</span>
-                                            <span className="text-[10px] text-orange-600 font-bold">Stitch Layout</span>
-                                          </div>
-                                          <div className="space-y-1.5">
-                                            {(activeScr.sections || []).map((sec, sIdx) => (
-                                              <div key={sIdx} className="p-2 rounded-xl bg-slate-50 border border-slate-100">
-                                                <div className="font-bold text-slate-800">{sec.title}</div>
-                                                <div className="text-[11px] text-slate-500">{sec.description}</div>
-                                              </div>
-                                            ))}
-                                          </div>
-                                        </div>
-
-                                        <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2">
-                                          <div className="font-black text-slate-900 flex items-center justify-between">
-                                            <span>مكونات النظام التفاعلية ({(gate2Design.components || []).length})</span>
-                                            <span className="text-[10px] text-teal-600 font-bold">UI Components</span>
-                                          </div>
-                                          <div className="flex flex-wrap gap-1.5">
-                                            {(gate2Design.components || []).map((comp, idx) => (
-                                              <span
-                                                key={idx}
-                                                className="px-2.5 py-1 rounded-xl bg-teal-50 border border-teal-200 text-teal-900 font-bold text-[11px]"
-                                              >
-                                                🧩 {comp.name}
-                                              </span>
-                                            ))}
-                                          </div>
-                                          {activeScr.actions && activeScr.actions.length > 0 && (
-                                            <div className="pt-2 border-t border-slate-100">
-                                              <div className="text-[10px] font-bold text-slate-400 mb-1">الإجراءات التفاعلية (Screen Actions):</div>
-                                              <div className="flex flex-wrap gap-1">
-                                                {activeScr.actions.map((act, idx) => (
-                                                  <span key={idx} className="px-2 py-0.5 rounded bg-orange-50 text-orange-700 border border-orange-200 text-[10px] font-semibold">
-                                                    ⚡ {act}
-                                                  </span>
-                                                ))}
-                                              </div>
-                                            </div>
-                                          )}
-                                        </div>
-
-                                        <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2">
-                                          <div className="font-black text-slate-900 flex items-center justify-between">
-                                            <span>رحلات المستخدم ({(gate2Design.userFlows || []).length})</span>
-                                            <span className="text-[10px] text-amber-600 font-bold">User Journeys</span>
-                                          </div>
-                                          <div className="space-y-1.5">
-                                            {(gate2Design.userFlows || []).map((flow, fIdx) => (
-                                              <div key={fIdx} className="p-2 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
-                                                <div className="font-bold text-slate-800">{flow.name}</div>
-                                                <div className="text-[11px] text-slate-500">
-                                                  {(flow.steps || []).join(' ← ')}
-                                                </div>
-                                              </div>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              })()}
-
-                              {/* TAB 1: PROJECT LANDING & OVERVIEW WORKSPACE (100% DRIVEN BY GATE 1 PRD) */}
-                              {stitchScreenTab === 'landing' && (
-                                <div className="flex-1 overflow-y-auto space-y-5 p-5">
-                                  {/* Project Hero Banner */}
-                                  <div className="rounded-3xl bg-slate-900 text-white p-6 md:p-7 relative overflow-hidden shadow-md border border-slate-800">
-                                    <div className="relative z-10 space-y-4">
-                                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-400/30 text-amber-300 text-[11px] font-bold">
-                                        <span>✨ الواجهة الرئيسية ({prdSource.projectName}) • مصممة بواسطة Google Stitch من متطلبات البوابة 1</span>
-                                      </div>
-                                      <h2 className="text-xl md:text-2xl font-black leading-snug">
-                                        {prdSource.projectName} — <span className="text-amber-400">{prdSource.overview}</span>
-                                      </h2>
-                                      <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
-                                        الأهداف المعتمدة: {prdObjectives.join(' • ')}
-                                      </p>
-
-                                      {/* Interactive Quick Launch Bar dynamically populated from Gate 1 features, roles, and data entities */}
-                                      <div className="bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/15 grid grid-cols-1 md:grid-cols-4 gap-2.5 text-xs pt-3">
-                                        <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
-                                          <label className="block text-[10px] text-slate-400 mb-1">الوحدة / الميزة الأساسية</label>
-                                          <select
-                                            value={selectedFeature}
-                                            onChange={e => setStitchHeroType(e.target.value)}
-                                            className="w-full bg-transparent text-white font-bold text-xs focus:outline-none"
-                                          >
-                                            {prdFeatures.map((feat, idx) => (
-                                              <option key={idx} value={feat} className="text-slate-900">
-                                                {feat}
-                                              </option>
-                                            ))}
-                                          </select>
-                                        </div>
-
-                                        <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
-                                          <label className="block text-[10px] text-slate-400 mb-1">الدور الوظيفي (User Role)</label>
-                                          <select
-                                            value={selectedRole}
-                                            onChange={e => setStitchHeroLocation(e.target.value)}
-                                            className="w-full bg-transparent text-white font-bold text-xs focus:outline-none"
-                                          >
-                                            {prdRoles.map((role, idx) => (
-                                              <option key={idx} value={role} className="text-slate-900">
-                                                {role}
-                                              </option>
-                                            ))}
-                                          </select>
-                                        </div>
-
-                                        <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
-                                          <label className="block text-[10px] text-slate-400 mb-1">كيان البيانات المستهدف</label>
-                                          <select
-                                            value={selectedEntity}
-                                            onChange={e => setStitchSelectedSlot(e.target.value)}
-                                            className="w-full bg-transparent text-white font-bold text-xs focus:outline-none"
-                                          >
-                                            {prdEntities.map((ent, idx) => (
-                                              <option key={idx} value={ent} className="text-slate-900">
-                                                {ent}
-                                              </option>
-                                            ))}
-                                          </select>
-                                        </div>
-
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setStitchBookingService(selectedFeature);
-                                            setStitchScreenTab('booking');
-                                            showToast(`تم فتح وحدة "${selectedFeature}" (${selectedEntity}) بصلاحية "${selectedRole}"`);
-                                          }}
-                                          className={`rounded-xl font-black text-xs text-white shadow-md transition flex items-center justify-center gap-1.5 py-3 ${themeMap.primaryBg} ${themeMap.primaryHover}`}
-                                        >
-                                          <span>بدء العملية في النظام</span>
-                                          <span>←</span>
-                                        </button>
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  {/* Dynamic Metrics Strip from Gate 1 Requirements */}
-                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
-                                    {[
-                                      { val: `${prdFeatures.length} وحدات`, label: 'الميزات الأساسية المعتمدة', badge: 'البوابة 1' },
-                                      { val: `${prdRoles.length} أدوار`, label: 'صلاحيات المستخدمين (RBAC)', badge: prdRoles[0] },
-                                      { val: `${prdEntities.length} كيانات`, label: 'نماذج وسجلات البيانات', badge: 'مهيكلة' },
-                                      { val: `${prdIntegrations.length} تكامل`, label: 'أنظمة الربط والإشعارات', badge: 'متصل' },
-                                    ].map((stat, i) => (
-                                      <div key={i} className={`p-3.5 rounded-2xl border shadow-2xs ${themeMap.cardBg}`}>
-                                        <div className="text-base font-black tabular-nums">{stat.val}</div>
-                                        <div className="text-[11px] opacity-70 mt-0.5">{stat.label}</div>
-                                        <span className={`inline-block mt-1 px-2 py-0.5 rounded-md text-[9px] font-bold ${themeMap.lightBg} ${themeMap.lightText}`}>
-                                          {stat.badge}
-                                        </span>
-                                      </div>
-                                    ))}
-                                  </div>
-
-                                  {/* Approved Features & Modules Cards on Landing Page */}
-                                  <div className="space-y-2.5">
-                                    <div className="flex items-center justify-between">
-                                      <h4 className="font-black text-xs">
-                                        الوحدات والميزات المعتمدة في "{prdSource.projectName}" ({prdFeatures.length})
-                                      </h4>
-                                      <button
-                                        type="button"
-                                        onClick={() => setStitchScreenTab('portal')}
-                                        className={`text-[11px] font-bold ${themeMap.lightText} hover:underline`}
-                                      >
-                                        استعراض جميع الوحدات وكيانات البيانات ({prdFeatures.length}) ←
-                                      </button>
-                                    </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                                      {prdFeatures.slice(0, 6).map((feat, idx) => {
-                                        const roleForCard = prdRoles[idx % prdRoles.length];
-                                        const entityForCard = prdEntities[idx % prdEntities.length];
-                                        return (
-                                          <div key={idx} className={`p-4 rounded-2xl border flex flex-col justify-between space-y-3 shadow-2xs ${themeMap.cardBg}`}>
-                                            <div className="space-y-1.5">
-                                              <div className="flex items-center justify-between">
-                                                <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                                                  ● وحدة معتمدة #{idx + 1}
-                                                </span>
-                                                <span className="font-bold text-[10px] text-amber-600">{roleForCard}</span>
-                                              </div>
-                                              <div className="font-bold text-xs">{feat}</div>
-                                              <div className="text-[11px] opacity-65">
-                                                البيانات المرتبطة: {entityForCard} • {prdRules[idx % prdRules.length]}
-                                              </div>
-                                            </div>
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                setStitchBookingService(feat);
-                                                setStitchScreenTab('booking');
-                                              }}
-                                              className={`w-full py-2 rounded-xl text-white font-bold text-[11px] transition ${themeMap.primaryBg} ${themeMap.primaryHover}`}
-                                            >
-                                              فتح وتشغيل: {feat}
-                                            </button>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  </div>
-
-                                  {/* User Journeys Strip from Gate 1 PRD */}
-                                  <div className={`p-4 rounded-2xl border ${themeMap.cardBg} space-y-3`}>
-                                    <div className="font-black text-xs">مسارات ورحلات المستخدم المعتمدة في "{prdSource.projectName}"</div>
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                                      {prdJourneys.slice(0, 3).map((journey, jIdx) => (
-                                        <div key={jIdx} className="p-3 rounded-xl bg-slate-500/5 border border-slate-200/50 space-y-1">
-                                          <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${themeMap.lightBg} ${themeMap.lightText}`}>
-                                            المسار 0{jIdx + 1} • {prdRoles[jIdx % prdRoles.length]}
-                                          </span>
-                                          <div className="font-bold">{journey}</div>
-                                          <p className="text-[11px] opacity-65">
-                                            القاعدة المنظمة: {prdRules[jIdx % prdRules.length]}
-                                          </p>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* TAB 2: MAIN DASHBOARD & LIVE OPERATIONS TABLE (100% DRIVEN BY GATE 1 PRD) */}
-                              {stitchScreenTab === 'dashboard' && (
-                                <div className="p-5 space-y-4 flex-1 overflow-y-auto">
-                                  {/* 4 KPI Cards inside Stitch Canvas */}
-                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                    <div className={`p-3.5 rounded-2xl border shadow-2xs ${themeMap.cardBg}`}>
-                                      <span className="text-[10px] opacity-60 block">إجمالي السجلات والعمليات</span>
-                                      <div className="text-lg font-black mt-0.5 tabular-nums">{allProjectRecords.length} سجل</div>
-                                      <span className="text-[10px] text-emerald-500 font-bold">{prdSource.projectName}</span>
-                                    </div>
-                                    <div className={`p-3.5 rounded-2xl border shadow-2xs ${themeMap.cardBg}`}>
-                                      <span className="text-[10px] opacity-60 block">العمليات المعتمدة والنشطة</span>
-                                      <div className="text-lg font-black mt-0.5 tabular-nums">
-                                        {allProjectRecords.filter(a => a.status === 'مؤكد' || a.status === 'مكتمل').length} عملية
-                                      </div>
-                                      <span className={`text-[10px] font-bold ${themeMap.lightText}`}>{prdFeatures[0]}</span>
-                                    </div>
-                                    <div className={`p-3.5 rounded-2xl border shadow-2xs ${themeMap.cardBg}`}>
-                                      <span className="text-[10px] opacity-60 block">كيانات البيانات المهيكلة</span>
-                                      <div className="text-lg font-black mt-0.5 tabular-nums">{prdEntities.length} كيانات</div>
-                                      <span className="text-[10px] opacity-60 truncate block">{prdEntities.slice(0, 2).join(' • ')}</span>
-                                    </div>
-                                    <div className={`p-3.5 rounded-2xl border shadow-2xs ${themeMap.cardBg}`}>
-                                      <span className="text-[10px] opacity-60 block">التكاملات وقواعد العمل</span>
-                                      <div className="text-lg font-black mt-0.5 tabular-nums">{prdIntegrations.length} تكامل</div>
-                                      <span className="text-[10px] text-emerald-500 font-bold truncate block">{prdIntegrations[0]}</span>
-                                    </div>
-                                  </div>
-
-                                  {/* Filter Bar by User Roles from Gate 1 PRD */}
-                                  <div className={`p-3.5 rounded-2xl border flex flex-wrap items-center justify-between gap-2 text-xs ${themeMap.cardBg}`}>
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                      <span className="font-bold opacity-75 ml-1">تصفية حسب الدور الوظيفي:</span>
-                                      {['الكل', ...prdRoles].map(roleOpt => (
-                                        <button
-                                          key={roleOpt}
-                                          type="button"
-                                          onClick={() => setStitchSelectedDay(roleOpt === 'الكل' ? '' : roleOpt)}
-                                          className={`px-3 py-1 rounded-xl font-bold transition whitespace-nowrap ${
-                                            activeRoleFilter === roleOpt
-                                              ? `${themeMap.primaryBg} text-white`
-                                              : 'bg-slate-100/80 text-slate-600 hover:bg-slate-200/70'
-                                          }`}
-                                        >
-                                          {roleOpt}
-                                        </button>
-                                      ))}
-                                    </div>
-                                    <span className="text-[10px] font-bold opacity-60 shrink-0">
-                                      الدور المعروض: {activeRoleFilter}
+                                  <div className="flex items-center gap-2 font-mono text-[10px]" dir="ltr">
+                                    <span className="px-2 py-0.5 rounded bg-slate-800 text-teal-300">
+                                      Route: {activeScr.route}
                                     </span>
+                                    {activeScr.remoteScreenId && (
+                                      <span className="px-2 py-0.5 rounded bg-slate-800 text-orange-300">
+                                        Screen ID: {activeScr.remoteScreenId}
+                                      </span>
+                                    )}
+                                    {activeScr.screenshotUrl && (
+                                      <a
+                                        href={activeScr.screenshotUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="px-2 py-0.5 rounded bg-slate-800 text-blue-300 hover:underline"
+                                      >
+                                        Screenshot ↗
+                                      </a>
+                                    )}
                                   </div>
+                                </div>
 
-                                  {/* Interactive Operations & Records Table */}
-                                  <div className={`rounded-2xl border overflow-hidden shadow-2xs ${themeMap.cardBg}`}>
-                                    <div className="px-4 py-3 border-b border-slate-200/60 flex items-center justify-between">
-                                      <span className="font-bold text-xs">
-                                        جدول العمليات والسجلات الحية — {prdSource.projectName} ({filteredProjectRecords.length})
+                                {/* Either Live Screen Iframe OR UI Code Inspector */}
+                                {!isCodeInspectionMode ? (
+                                  <div className="flex-1 min-h-[580px] w-full bg-white">
+                                    <iframe
+                                      title={`gate2-stitch-screen-${activeScr.id}`}
+                                      srcDoc={activeScr.htmlContent}
+                                      sandbox="allow-scripts"
+                                      className="w-full h-[580px] border-0"
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="p-4 bg-slate-950 text-emerald-400 font-mono text-[11px] flex-1 min-h-[540px] overflow-auto" dir="ltr">
+                                    <div className="flex items-center justify-between pb-2 mb-3 border-b border-slate-800 text-slate-400">
+                                      <span>
+                                        // Stitch Screen Markup — {activeScr.name} ({activeScr.route})
+                                        {activeScr.remoteScreenId ? ` [Remote Screen: ${activeScr.remoteScreenId}]` : ''}
                                       </span>
                                       <button
                                         type="button"
-                                        onClick={() => setStitchScreenTab('booking')}
-                                        className={`text-[11px] font-bold ${themeMap.lightText} hover:underline`}
-                                      >
-                                        + إضافة سجل / عملية جديدة
-                                      </button>
-                                    </div>
-                                    <div className="divide-y divide-slate-200/50 text-xs">
-                                      {filteredProjectRecords.map((rec) => (
-                                        <div key={rec.id} className="px-4 py-3 flex items-center justify-between gap-2 hover:bg-slate-500/5 transition">
-                                          <div className="space-y-0.5">
-                                            <div className="font-bold flex items-center gap-2">
-                                              <span>{rec.property}</span>
-                                              <span className="text-[10px] font-mono opacity-50">{rec.id}</span>
-                                            </div>
-                                            <div className="text-[11px] opacity-70">
-                                              البيانات: {rec.client} · المسؤول: {rec.agent}
-                                            </div>
-                                          </div>
-                                          <div className="flex items-center gap-2 shrink-0">
-                                            <span className="font-mono text-[11px] font-bold px-2.5 py-1 rounded-lg bg-slate-500/10">
-                                              {rec.time}
-                                            </span>
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                const existsInCustom = stitchAppointments.some(item => item.id === rec.id);
-                                                if (existsInCustom) {
-                                                  setStitchAppointments(prev =>
-                                                    prev.map(item =>
-                                                      item.id === rec.id
-                                                        ? { ...item, status: item.status === 'مؤكد' ? 'مكتمل' : 'مؤكد' }
-                                                        : item
-                                                    )
-                                                  );
-                                                } else {
-                                                  setStitchAppointments(prev => [
-                                                    { ...rec, id: `${rec.id}-UPD`, status: rec.status === 'مؤكد' ? 'مكتمل' : 'مؤكد' },
-                                                    ...prev,
-                                                  ]);
-                                                }
-                                                showToast(`تم تحديث حالة العملية "${rec.property}" في ${prdSource.projectName}`);
-                                              }}
-                                              className={`px-2.5 py-1 rounded-full text-[10px] font-bold cursor-pointer ${
-                                                rec.status === 'مؤكد'
-                                                  ? 'bg-emerald-100 text-emerald-800'
-                                                  : rec.status === 'مكتمل'
-                                                  ? 'bg-blue-100 text-blue-800'
-                                                  : 'bg-amber-100 text-amber-800'
-                                              }`}
-                                            >
-                                              ● {rec.status}
-                                            </button>
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* TAB 3: INTERACTIVE OPERATION / RECORD FORM SCREEN (100% DRIVEN BY GATE 1 PRD) */}
-                              {stitchScreenTab === 'booking' && (
-                                <div className="p-5 space-y-4 flex-1 overflow-y-auto">
-                                  <div className={`p-5 rounded-2xl border space-y-4 ${themeMap.cardBg}`}>
-                                    <div className="flex items-center justify-between border-b border-slate-200/60 pb-3">
-                                      <div>
-                                        <h4 className="font-black text-sm">
-                                          إضافة وتنفيذ عملية جديدة — {prdSource.projectName}
-                                        </h4>
-                                        <p className="text-[11px] opacity-60">
-                                          نموذج إدخال تفاعلي مبني على متطلبات البيانات ({prdEntities.join(' • ')})
-                                        </p>
-                                      </div>
-                                      <button
-                                        type="button"
-                                        onClick={() => setStitchScreenTab('dashboard')}
-                                        className="text-xs font-bold opacity-60 hover:opacity-100"
-                                      >
-                                        العودة للوحة العمليات ←
-                                      </button>
-                                    </div>
-
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                                      <div>
-                                        <label className="block font-bold mb-1">
-                                          بيان السجل / {prdEntities[0] || 'العملية'}
-                                        </label>
-                                        <input
-                                          type="text"
-                                          value={stitchBookingClient}
-                                          onChange={e => setStitchBookingClient(e.target.value)}
-                                          placeholder={`أدخل تفاصيل ${prdEntities[0] || 'السجل'} في ${prdSource.projectName}...`}
-                                          className="w-full h-10 px-3 rounded-xl bg-slate-500/5 border border-slate-300/60 text-xs focus:outline-none"
-                                        />
-                                      </div>
-                                      <div>
-                                        <label className="block font-bold mb-1">الوحدة / الميزة المستهدفة</label>
-                                        <select
-                                          value={stitchBookingService || prdFeatures[0]}
-                                          onChange={e => setStitchBookingService(e.target.value)}
-                                          className="w-full h-10 px-3 rounded-xl bg-slate-500/5 border border-slate-300/60 text-xs font-semibold focus:outline-none"
-                                        >
-                                          {prdFeatures.map((feat, idx) => (
-                                            <option key={idx} value={feat}>
-                                              {feat}
-                                            </option>
-                                          ))}
-                                        </select>
-                                      </div>
-                                    </div>
-
-                                    <div className="text-xs space-y-1.5">
-                                      <label className="block font-bold">اختر كيان البيانات المرتبط والدور المسؤول</label>
-                                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                                        {prdEntities.map((ent, idx) => (
-                                          <button
-                                            key={idx}
-                                            type="button"
-                                            onClick={() => setStitchSelectedSlot(ent)}
-                                            className={`py-2 px-2 rounded-xl font-bold text-[11px] border transition ${
-                                              selectedEntity === ent
-                                                ? `${themeMap.primaryBg} text-white border-transparent shadow-xs`
-                                                : 'border-slate-300/60 hover:border-orange-400'
-                                            }`}
-                                          >
-                                            {ent}
-                                          </button>
-                                        ))}
-                                      </div>
-                                    </div>
-
-                                    <div className="pt-2 flex items-center justify-end gap-2">
-                                      <button
-                                        type="button"
                                         onClick={() => {
-                                          const chosenFeature = stitchBookingService || prdFeatures[0];
-                                          const newEntry = {
-                                            id: `REC-${Math.floor(200 + Math.random() * 700)}`,
-                                            client: stitchBookingClient.trim() || `${selectedEntity} (${prdSource.projectName})`,
-                                            property: chosenFeature,
-                                            time: prdIntegrations[0] || 'تم الحفظ آنياً',
-                                            agent: selectedRole,
-                                            status: 'مؤكد' as const,
-                                          };
-                                          setStitchAppointments(prev => [newEntry, ...prev]);
-                                          setStitchBookingClient('');
-                                          setStitchScreenTab('dashboard');
-                                          showToast(`تم حفظ "${newEntry.property}" وإضافته لجدول عمليات ${prdSource.projectName}!`);
+                                          try {
+                                            navigator.clipboard?.writeText(activeScr.htmlContent || matchingUiFile?.content || '');
+                                          } catch {}
+                                          showToast('تم نسخ كود الشاشة إلى الحافظة');
                                         }}
-                                        className={`px-6 py-2.5 rounded-xl text-white text-xs font-bold shadow-md transition ${themeMap.primaryBg} ${themeMap.primaryHover}`}
+                                        className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-white text-[10px] font-sans font-bold"
                                       >
-                                        حفظ وإضافة لجدول عمليات {prdSource.projectName}
+                                        نسخ كود الشاشة
                                       </button>
                                     </div>
+                                    <pre className="whitespace-pre-wrap break-words">
+                                      {activeScr.htmlContent || matchingUiFile?.content || ''}
+                                    </pre>
                                   </div>
+                                )}
+                              </div>
+                            ) : (
+                              /* Honest Empty / Pending State when Gate 2 has not been generated yet */
+                              <div className="flex-1 rounded-3xl border-2 border-dashed border-slate-300 bg-white p-8 flex flex-col items-center justify-center text-center space-y-4">
+                                <div className="w-14 h-14 rounded-2xl bg-orange-50 border border-orange-200 text-orange-600 flex items-center justify-center">
+                                  <Layout className="w-7 h-7" />
                                 </div>
-                              )}
-
-                              {/* TAB 4: MODULES, DATA ENTITIES & INTEGRATIONS PORTAL (100% DRIVEN BY GATE 1 PRD) */}
-                              {stitchScreenTab === 'portal' && (
-                                <div className="p-5 space-y-4 flex-1 overflow-y-auto">
-                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                                    {prdFeatures.map((feat, idx) => {
-                                      const entityName = prdEntities[idx % prdEntities.length];
-                                      const roleName = prdRoles[idx % prdRoles.length];
-                                      const ruleText = prdRules[idx % prdRules.length];
-                                      return (
-                                        <div key={idx} className={`p-4 rounded-2xl border flex flex-col justify-between space-y-3 shadow-2xs ${themeMap.cardBg}`}>
-                                          <div className="space-y-1.5">
-                                            <div className="flex items-center justify-between">
-                                              <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${themeMap.lightBg} ${themeMap.lightText}`}>
-                                                {roleName}
-                                              </span>
-                                              <span className="font-black text-[11px]">{entityName}</span>
-                                            </div>
-                                            <h5 className="font-bold text-xs">{feat}</h5>
-                                            <p className="text-[11px] opacity-65">{ruleText}</p>
-                                            <div className="text-[10px] text-emerald-500 font-bold">
-                                              ● متكامل مع: {prdIntegrations[idx % prdIntegrations.length]}
-                                            </div>
-                                          </div>
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setStitchBookingService(feat);
-                                              setStitchScreenTab('booking');
-                                            }}
-                                            className={`w-full py-2 rounded-xl text-white font-bold text-[11px] transition ${themeMap.primaryBg} ${themeMap.primaryHover}`}
-                                          >
-                                            تنفيذ عملية في {feat}
-                                          </button>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
+                                <div className="max-w-xl space-y-1.5">
+                                  <h3 className="text-base font-black text-slate-900">
+                                    لم يتم توليد شاشات التصميم عن بُعد لمشروع "{prdSource.projectName}" بعد
+                                  </h3>
+                                  <p className="text-xs text-slate-500 leading-relaxed">
+                                    تعتمد البوابة الثانية على الاتصال المباشر بخدمة Google Stitch MCP الرسمية (
+                                    <span className="font-mono text-slate-700" dir="ltr">
+                                      https://stitch.googleapis.com/mcp
+                                    </span>
+                                    ) لتحويل متطلبات البوابة الأولى ({prdSource.features.length} ميزات أساسية و
+                                    {prdSource.userRoles.length} أدوار مستخدمين) إلى شاشات HTML/UI حقيقية.
+                                  </p>
                                 </div>
-                              )}
-
-                              {/* DYNAMICALLY ADDED CUSTOM PAGES FROM GATE 2 CHAT */}
-                              {stitchCustomPages
-                                .filter(cp => cp.id === stitchScreenTab)
-                                .map(cp => (
-                                  <div key={cp.id} className="p-5 space-y-4 flex-1 overflow-y-auto">
-                                    <div className={`p-4 rounded-2xl border flex items-center justify-between gap-3 ${themeMap.cardBg}`}>
-                                      <div className="space-y-1">
-                                        <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                                          <span>● صفحة مولدة بالذكاء الاصطناعي عبر Google Stitch</span>
-                                        </div>
-                                        <h4 className="font-black text-sm">{cp.title}</h4>
-                                        <p className="text-[11px] opacity-65">بناءً على طلبك في الشات: "{cp.prompt}"</p>
-                                      </div>
-                                      <button
-                                        type="button"
-                                        onClick={() => setStitchScreenTab('landing')}
-                                        className="text-xs font-bold opacity-60 hover:opacity-100"
-                                      >
-                                        العودة للرئيسية ←
-                                      </button>
-                                    </div>
-
-                                    <div className="space-y-4 text-xs">
-                                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                        <div className={`p-4 rounded-2xl border space-y-1.5 ${themeMap.cardBg}`}>
-                                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${themeMap.lightBg} ${themeMap.lightText}`}>القسم الرئيسي 01</span>
-                                          <div className="font-bold text-xs">واجهة {cp.title}</div>
-                                          <p className="text-[11px] opacity-65">مكون تفاعلي مصمم خصيصاً لـ {prdSource.projectName} مع دعم كامل للعربية.</p>
-                                        </div>
-                                        <div className={`p-4 rounded-2xl border space-y-1.5 ${themeMap.cardBg}`}>
-                                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${themeMap.lightBg} ${themeMap.lightText}`}>القسم التفاعلي 02</span>
-                                          <div className="font-bold text-xs">إدارة البيانات والإجراءات السريعة</div>
-                                          <p className="text-[11px] opacity-65">مرتبط ببيانات ({prdEntities.join('، ')}) في {prdSource.projectName}.</p>
-                                        </div>
-                                        <div className={`p-4 rounded-2xl border space-y-1.5 ${themeMap.cardBg}`}>
-                                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${themeMap.lightBg} ${themeMap.lightText}`}>القسم التحليلي 03</span>
-                                          <div className="font-bold text-xs">ملخص مخرجات Google Stitch</div>
-                                          <p className="text-[11px] opacity-65 line-clamp-2">{cp.aiSummary}</p>
-                                        </div>
-                                      </div>
-
-                                      <div className={`p-5 rounded-2xl border space-y-3 ${themeMap.cardBg}`}>
-                                        <div className="font-bold text-xs">نموذج التفاعل السريع في {cp.title}</div>
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                          <input type="text" placeholder="البيان أو العنوان..." className="h-10 px-3 rounded-xl border border-slate-300/60 bg-transparent text-xs" />
-                                          <input type="text" placeholder="التفاصيل أو الملاحظات..." className="h-10 px-3 rounded-xl border border-slate-300/60 bg-transparent text-xs" />
-                                          <button
-                                            type="button"
-                                            onClick={() => showToast(`تم حفظ البيانات في ${cp.title} بنجاح!`)}
-                                            className={`h-10 rounded-xl text-white font-bold ${themeMap.primaryBg}`}
-                                          >
-                                            حفظ وتنفيذ الإجراء
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                ))}
-
-                              {/* TAB 5: STITCH GENERATED TAILWIND / REACT CODE (100% DRIVEN BY GATE 1 PRD) */}
-                              {stitchScreenTab === 'code' && (
-                                <div className="p-4 bg-slate-950 text-emerald-400 font-mono text-[11px] flex-1 overflow-auto" dir="ltr">
-                                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800 text-slate-400">
-                                    <span>// Google Stitch Generated UI Component (Tailwind CSS RTL) — {prdSource.projectName}</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => showToast('تم نسخ كود واجهة Google Stitch إلى الحافظة')}
-                                      className="px-2.5 py-1 rounded bg-slate-800 text-white text-[10px] font-sans font-bold"
+                                <div className="flex flex-wrap items-center justify-center gap-1.5 max-w-2xl">
+                                  {prdSource.features.slice(0, 6).map((feat, i) => (
+                                    <span
+                                      key={i}
+                                      className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-[11px] text-slate-700 font-semibold"
                                     >
-                                      نسخ الكود
-                                    </button>
-                                  </div>
-                                  <pre>{gate2Design?.uiFiles?.[0]?.content || `export default function StitchGeneratedWorkspace() {
-  const projectName = ${JSON.stringify(prdSource.projectName)};
-  const overview = ${JSON.stringify(prdSource.overview)};
-  const features = ${JSON.stringify(prdFeatures, null, 2)};
-  const roles = ${JSON.stringify(prdRoles, null, 2)};
-  const dataEntities = ${JSON.stringify(prdEntities, null, 2)};
-
-  return (
-    <div dir="rtl" className="min-h-screen bg-slate-50 text-slate-900 p-6 space-y-6">
-      <header className="bg-white p-5 rounded-2xl border flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-black">{projectName}</h1>
-          <p className="text-xs text-slate-500">{overview}</p>
-        </div>
-        <button className="px-4 py-2 rounded-xl bg-orange-600 text-white font-bold">
-          + إضافة {dataEntities[0]}
-        </button>
-      </header>
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {features.map((feat, i) => (
-          <div key={i} className="p-4 bg-white rounded-2xl border shadow-2xs">
-            <div className="font-bold text-sm">{feat}</div>
-            <div className="text-xs text-slate-500 mt-1">الدور: {roles[i % roles.length]}</div>
-          </div>
-        ))}
-      </section>
-    </div>
-  );
-}`}</pre>
+                                      • {feat}
+                                    </span>
+                                  ))}
                                 </div>
-                              )}
-                            </div>
+                                {!gate2Locked && (
+                                  <button
+                                    type="button"
+                                    disabled={isAiProcessing}
+                                    onClick={() =>
+                                      executeStageAgentPrompt(
+                                        `قم بتوليد وتحديث تصميم الواجهات التفاعلية والشاشات لمشروع "${prdSource.projectName}" (${prdSource.overview}) عبر خدمة Google Stitch MCP استناداً إلى وثيقة المتطلبات المعتمدة.`
+                                      )
+                                    }
+                                    className="px-5 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white text-xs font-bold shadow-sm transition flex items-center gap-2"
+                                  >
+                                    <Sparkles className="w-4 h-4" />
+                                    <span>توليد شاشات المشروع الآن عبر Google Stitch MCP</span>
+                                  </button>
+                                )}
+                              </div>
+                            )}
                           </div>
                         );
                       })()}

@@ -55,12 +55,12 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     id: 'prov-stitch',
     name: 'Google Stitch (UI/UX Design AI)',
     providerType: 'stitch',
-    model: 'google-stitch-v2-ui',
+    model: 'GEMINI_3_FLASH',
     status: 'active',
     enabled: true,
     apiKey: '',
     useSystemEnv: true,
-    endpoint: 'https://stitch.withgoogle.com/api/v1/generate',
+    endpoint: 'https://stitch.googleapis.com/mcp',
     latency: '110ms',
     assignedGates: ['GATE 02'],
     monthlyQuotaJod: 1500,
@@ -214,14 +214,14 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
     desc: 'تحويل وثيقة الـ PRD المعتمدة إلى مواصفات تصميم وشاشات واجهات عصرية متجاوبة تدعم العربية (RTL) بنظام Tailwind CSS ومحرك Google Stitch التفاعلي.',
     providerId: 'prov-stitch',
     providerName: 'Google Stitch (UI/UX Design AI)',
-    model: 'google-stitch-v2-ui',
+    model: 'GEMINI_3_FLASH',
     apiKey: '',
     useProviderKey: true,
     temperature: 0.6,
     maxTokens: 4096,
     enabled: true,
     systemPrompt:
-      'أنت محرك Google Stitch المتخصص في تصميم واجهات المستخدم وتجربة الاستخدام (Gate 2 UI/UX Design Agent) في مصنع OGroup AI Factory. مهمتك تحويل وثيقة المتطلبات المعتمدة إلى تصميم واجهات تفاعلي حي داخل Stitch Canvas ونظام ألوان وتخطيط شاشات متجاوب يدعم العربية (RTL) باستخدام Tailwind CSS.',
+      'أنت محرك Google Stitch المتخصص في تصميم واجهات المستخدم وتجربة الاستخدام (Gate 2 UI/UX Design Agent) في مصنع OGroup AI Factory. مهمتك تحويل وثيقة المتطلبات المعتمدة إلى تصميم واجهات تفاعلي حي عبر خدمة Google Stitch MCP الرسمية ونظام ألوان وتخطيط شاشات متجاوب يدعم العربية (RTL) باستخدام Tailwind CSS.',
   },
   {
     gate: 3,
@@ -286,8 +286,17 @@ function cleanSubmittedApiKey(val: unknown): string {
 function isAgentModelCompatibleWithProviderType(model: string, providerType: string): boolean {
   const m = (model || '').toLowerCase().trim();
   if (!m) return false;
-  if (providerType !== 'gemini' && m.startsWith('gemini-')) return false;
-  if (providerType !== 'stitch' && m.includes('stitch')) return false;
+  if (providerType === 'stitch') {
+    return (
+      m === 'gemini_3_flash' ||
+      m === 'gemini_3_1_pro' ||
+      m === 'gemini_3_pro' ||
+      m.includes('stitch') ||
+      m.startsWith('gemini-')
+    );
+  }
+  if (providerType !== 'gemini' && (m.startsWith('gemini-') || m.startsWith('gemini_'))) return false;
+  if (m.includes('stitch')) return false;
   return true;
 }
 
@@ -452,14 +461,29 @@ function upgradeStitchDesignerConfig(
 ): { providers: ProviderConfig[]; agents: AgentConfig[]; changed: boolean } {
   let changed = false;
   const nextProviders = providers.map((p) => {
-    if (p.id === 'prov-stitch' && (p.status === 'standby' || p.latency === 'N/A')) {
-      changed = true;
-      return {
-        ...p,
-        status: 'active' as const,
-        enabled: true,
-        latency: p.latency === 'N/A' ? '110ms' : p.latency,
-      };
+    if (p.id === 'prov-stitch' || p.providerType === 'stitch') {
+      const nextEndpoint =
+        !p.endpoint || p.endpoint.includes('stitch.withgoogle.com')
+          ? 'https://stitch.googleapis.com/mcp'
+          : p.endpoint;
+      const nextModel =
+        !p.model || p.model === 'google-stitch-v2-ui' ? 'GEMINI_3_FLASH' : p.model;
+      if (
+        p.status === 'standby' ||
+        p.latency === 'N/A' ||
+        p.endpoint !== nextEndpoint ||
+        p.model !== nextModel
+      ) {
+        changed = true;
+        return {
+          ...p,
+          status: 'active' as const,
+          enabled: true,
+          endpoint: nextEndpoint,
+          model: nextModel,
+          latency: p.latency === 'N/A' ? '110ms' : p.latency,
+        };
+      }
     }
     return p;
   });
@@ -473,9 +497,9 @@ function upgradeStitchDesignerConfig(
         (a.providerId === 'prov-gemini' && (!a.model || a.model === 'gemini-3.8-flash' || a.model === 'gemini-2.5-flash')))
     ) {
       const nextModel =
-        a.model && a.model.toLowerCase().includes('stitch')
-          ? a.model
-          : stitchProv.model || 'google-stitch-v2-ui';
+        !a.model || a.model === 'google-stitch-v2-ui' || a.model.startsWith('gemini-')
+          ? stitchProv.model || 'GEMINI_3_FLASH'
+          : a.model;
       if (a.providerId !== 'prov-stitch' || a.model !== nextModel || a.providerName !== stitchProv.name) {
         changed = true;
       }
@@ -2244,11 +2268,7 @@ export function createApp(options: CreateAppOptions = {}) {
         ? agentsConfig.find((a) => a.gate === requestedGate)
         : undefined;
 
-      if (
-        !resolved.apiKey &&
-        resolved.providerType !== 'stitch' &&
-        resolved.providerType !== 'cloud'
-      ) {
+      if (!resolved.apiKey && resolved.providerType !== 'cloud') {
         return res.status(400).json({
           ok: false,
           verified: false,
@@ -2265,7 +2285,18 @@ export function createApp(options: CreateAppOptions = {}) {
           gate: requestedGate ?? null,
           keySource: resolved.keySource,
           latencyMs: 0,
-          error: `لا يوجد مفتاح API مهيأ للمزود (${resolved.providerName}). يرجى إدخال مفتاح صالح.`,
+          ...(resolved.providerType === 'stitch'
+            ? {
+                transport: 'mcp',
+                remoteEndpoint: resolved.endpoint || 'https://stitch.googleapis.com/mcp',
+                authenticationVerified: false,
+                toolDiscoveryVerified: false,
+              }
+            : {}),
+          error:
+            resolved.providerType === 'stitch'
+              ? 'مفتاح Google Stitch API Key (X-Goog-Api-Key) غير مهيأ. يرجى إدخال مفتاح Stitch الرسمي للاتصال بخدمة https://stitch.googleapis.com/mcp.'
+              : `لا يوجد مفتاح API مهيأ للمزود (${resolved.providerName}). يرجى إدخال مفتاح صالح.`,
         });
       }
 
@@ -2314,6 +2345,15 @@ export function createApp(options: CreateAppOptions = {}) {
           gate: requestedGate ?? null,
           keySource: resolved.keySource,
           latencyMs: adapterResult.latencyMs,
+          ...(adapterResult.transport ? { transport: adapterResult.transport } : {}),
+          ...(adapterResult.remoteEndpoint ? { remoteEndpoint: adapterResult.remoteEndpoint } : {}),
+          ...(typeof adapterResult.authenticationVerified === 'boolean'
+            ? { authenticationVerified: adapterResult.authenticationVerified }
+            : {}),
+          ...(typeof adapterResult.toolDiscoveryVerified === 'boolean'
+            ? { toolDiscoveryVerified: adapterResult.toolDiscoveryVerified }
+            : {}),
+          ...(adapterResult.discoveredTools ? { discoveredTools: adapterResult.discoveredTools } : {}),
           error: redactSecrets(adapterResult.error || 'فشل الاتصال بالمزود المحدد.'),
         });
       }
@@ -2334,6 +2374,15 @@ export function createApp(options: CreateAppOptions = {}) {
         agentTitle: agentObj?.title || resolved.providerName,
         keySource: resolved.keySource,
         latencyMs: adapterResult.latencyMs,
+        ...(adapterResult.transport ? { transport: adapterResult.transport } : {}),
+        ...(adapterResult.remoteEndpoint ? { remoteEndpoint: adapterResult.remoteEndpoint } : {}),
+        ...(typeof adapterResult.authenticationVerified === 'boolean'
+          ? { authenticationVerified: adapterResult.authenticationVerified }
+          : {}),
+        ...(typeof adapterResult.toolDiscoveryVerified === 'boolean'
+          ? { toolDiscoveryVerified: adapterResult.toolDiscoveryVerified }
+          : {}),
+        ...(adapterResult.discoveredTools ? { discoveredTools: adapterResult.discoveredTools } : {}),
         response: adapterResult.response,
         reply: adapterResult.response,
         usage: adapterResult.usage,

@@ -34,6 +34,30 @@ export interface DesignScreenDefinition {
   sections: { title: string; description: string; items: string[] }[];
   actions: string[];
   htmlContent: string;
+  remoteScreenId?: string;
+  remoteScreenName?: string;
+  htmlDownloadUrl?: string;
+  screenshotUrl?: string;
+  deviceType?: string;
+  generatedAt?: string;
+}
+
+export interface StitchRemoteRevisionEntry {
+  timestamp: string;
+  instruction: string;
+  operation: 'generate_screen_from_text' | 'edit_screens';
+  screenIds: string[];
+}
+
+export interface StitchRemoteMetadata {
+  remoteProjectId: string;
+  remoteProjectName: string;
+  remoteEndpoint: string;
+  transport: 'mcp';
+  modelUsed: string;
+  remoteExecutionStatus: 'succeeded' | 'failed';
+  generatedAt: string;
+  revisionHistory: StitchRemoteRevisionEntry[];
 }
 
 export interface DesignComponentItem {
@@ -77,6 +101,7 @@ export interface DesignArtifact {
   projectName: string;
   designSummary: string;
   basedOnPrdVersion: number;
+  stitchMetadata?: StitchRemoteMetadata;
   designSpecification: {
     direction: 'rtl' | 'ltr';
     primaryLanguage: string;
@@ -522,10 +547,8 @@ export function validateDesignArtifact(
       ? scr.actions.map((a: any) => String(a)).filter(Boolean)
       : [`تنفيذ إجراء في ${rawTitle}`];
 
-    const htmlContent =
-      typeof scr?.htmlContent === 'string' && scr.htmlContent.trim()
-        ? scr.htmlContent.trim()
-        : `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"/><style>body{font-family:sans-serif;padding:20px;background:#f8fafc;color:#0f172a}h2{color:${escapeHtml(visualTokens.primaryColor)}}</style></head><body><h2>${escapeHtml(rawTitle)}</h2><p>${escapeHtml(rawPurpose)}</p></body></html>`;
+    const hasProvidedHtml = typeof scr?.htmlContent === 'string' && scr.htmlContent.trim().length > 0;
+    const htmlContent = hasProvidedHtml ? scr.htmlContent.trim() : '';
 
     return {
       id,
@@ -541,6 +564,24 @@ export function validateDesignArtifact(
       sections,
       actions,
       htmlContent,
+      ...(typeof scr?.remoteScreenId === 'string' && scr.remoteScreenId.trim()
+        ? { remoteScreenId: scr.remoteScreenId.trim() }
+        : {}),
+      ...(typeof scr?.remoteScreenName === 'string' && scr.remoteScreenName.trim()
+        ? { remoteScreenName: scr.remoteScreenName.trim() }
+        : {}),
+      ...(typeof scr?.htmlDownloadUrl === 'string' && scr.htmlDownloadUrl.trim()
+        ? { htmlDownloadUrl: scr.htmlDownloadUrl.trim() }
+        : {}),
+      ...(typeof scr?.screenshotUrl === 'string' && scr.screenshotUrl.trim()
+        ? { screenshotUrl: scr.screenshotUrl.trim() }
+        : {}),
+      ...(typeof scr?.deviceType === 'string' && scr.deviceType.trim()
+        ? { deviceType: scr.deviceType.trim() }
+        : {}),
+      ...(typeof scr?.generatedAt === 'string' && scr.generatedAt.trim()
+        ? { generatedAt: scr.generatedAt.trim() }
+        : {}),
     };
   });
 
@@ -634,6 +675,35 @@ export function validateDesignArtifact(
       : ['واجهة عربية RTL', 'بطاقات واضحة', 'تباين لوني مريح'],
   };
 
+  let stitchMetadata: StitchRemoteMetadata | undefined;
+  if (
+    obj.stitchMetadata &&
+    typeof obj.stitchMetadata === 'object' &&
+    typeof obj.stitchMetadata.remoteProjectId === 'string' &&
+    obj.stitchMetadata.remoteProjectId.trim()
+  ) {
+    stitchMetadata = {
+      remoteProjectId: obj.stitchMetadata.remoteProjectId.trim(),
+      remoteProjectName: String(
+        obj.stitchMetadata.remoteProjectName || `projects/${obj.stitchMetadata.remoteProjectId.trim()}`
+      ),
+      remoteEndpoint: String(obj.stitchMetadata.remoteEndpoint || 'https://stitch.googleapis.com/mcp'),
+      transport: 'mcp',
+      modelUsed: String(obj.stitchMetadata.modelUsed || 'GEMINI_3_FLASH'),
+      remoteExecutionStatus: obj.stitchMetadata.remoteExecutionStatus === 'failed' ? 'failed' : 'succeeded',
+      generatedAt: String(obj.stitchMetadata.generatedAt || new Date().toISOString()),
+      revisionHistory: Array.isArray(obj.stitchMetadata.revisionHistory)
+        ? obj.stitchMetadata.revisionHistory.map((r: any) => ({
+            timestamp: String(r?.timestamp || new Date().toISOString()),
+            instruction: String(r?.instruction || ''),
+            operation:
+              r?.operation === 'edit_screens' ? 'edit_screens' : 'generate_screen_from_text',
+            screenIds: Array.isArray(r?.screenIds) ? r.screenIds.map((id: any) => String(id)) : [],
+          }))
+        : [],
+    };
+  }
+
   // Generate UI source files if not provided or enrich them
   let uiFiles: DesignUIFile[] = [];
   if (Array.isArray(obj.uiFiles) && obj.uiFiles.length > 0) {
@@ -648,22 +718,31 @@ export function validateDesignArtifact(
   }
 
   if (uiFiles.length === 0) {
-    uiFiles = screenInventory.map((scr) => {
+    for (const scr of screenInventory) {
       const safeFile = scr.id.replace(/[^a-zA-Z0-9_-]/g, '_');
       const formsForScreen = formDefinitions.filter((f) => f.screenId === scr.id);
-      return {
+      uiFiles.push({
         path: `src/screens/${safeFile}.tsx`,
         content: generateScreenComponentSource(projectName, scr, formsForScreen, visualTokens),
         fileType: 'tsx',
         screenId: scr.id,
-      };
-    });
+      });
+      if (scr.htmlContent && scr.remoteScreenId) {
+        uiFiles.push({
+          path: `src/stitch/screens/${safeFile}.html`,
+          content: scr.htmlContent,
+          fileType: 'html',
+          screenId: scr.id,
+        });
+      }
+    }
   }
 
   const baseArtifact: Omit<DesignArtifact, 'previewMetadata'> = {
     projectName,
     designSummary,
     basedOnPrdVersion: Number(obj.basedOnPrdVersion || basedOnPrdVersion || 1),
+    ...(stitchMetadata ? { stitchMetadata } : {}),
     designSpecification,
     visualTokens,
     navigationMap,
@@ -676,12 +755,17 @@ export function validateDesignArtifact(
     uiFiles,
   };
 
-  const isolatedPreviewHtml = buildIsolatedDesignPreviewHtml(baseArtifact);
+  const fallbackPreviewHtml = buildIsolatedDesignPreviewHtml(baseArtifact);
   for (const scr of screenInventory) {
-    if (!scr.htmlContent || scr.htmlContent.includes('<!DOCTYPE html><html dir="rtl" lang="ar"><head>')) {
-      scr.htmlContent = isolatedPreviewHtml;
+    if (!scr.htmlContent || !scr.htmlContent.trim()) {
+      scr.htmlContent = fallbackPreviewHtml;
     }
   }
+
+  const primaryPreviewHtml =
+    stitchMetadata && screenInventory[0]?.htmlContent
+      ? screenInventory[0].htmlContent
+      : fallbackPreviewHtml;
 
   return {
     valid: true,
@@ -691,7 +775,7 @@ export function validateDesignArtifact(
       previewMetadata: {
         defaultScreenId: screenInventory[0].id,
         supportedViewports: ['desktop', 'tablet', 'mobile'],
-        isolatedPreviewHtml,
+        isolatedPreviewHtml: primaryPreviewHtml,
       },
     },
   };

@@ -28,11 +28,123 @@ describe('Phase 1 & Phase 2 — Provider Configuration Authority, Endpoint Valid
 
   const mockHttpClient: ProviderHttpClient = async (inputUrl, init) => {
     const url = String(inputUrl);
-    const method = init?.method || 'POST';
-    const headers = (init?.headers || {}) as Record<string, string>;
+    const method = (init?.method || 'POST').toUpperCase();
+    const headers: Record<string, string> = {};
+    if (init?.headers) {
+      if (typeof (init.headers as any).forEach === 'function') {
+        (init.headers as any).forEach((v: string, k: string) => {
+          headers[k] = v;
+          headers[k.toLowerCase()] = v;
+        });
+      } else {
+        for (const [k, v] of Object.entries(init.headers as Record<string, string>)) {
+          if (typeof v === 'string') {
+            headers[k] = v;
+            headers[k.toLowerCase()] = v;
+          }
+        }
+      }
+    }
     const body = init?.body ? JSON.parse(String(init.body)) : {};
 
     recordedRequests.push({ url, method, headers, body });
+
+    if (url.startsWith('https://stitch.googleapis.com/artifacts/')) {
+      return new Response(
+        '<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="UTF-8" /></head><body class="bg-slate-950 text-white"><h1>واجهة Google Stitch الرسمية</h1></body></html>',
+        { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+      );
+    }
+
+    if (url.startsWith('https://stitch.googleapis.com/mcp')) {
+      if (method === 'DELETE' || method === 'GET') {
+        return new Response(null, { status: 200 });
+      }
+      const rpcMethod = body.method || '';
+      if (rpcMethod === 'initialize') {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: body.id,
+            result: {
+              protocolVersion: '2024-11-05',
+              capabilities: { tools: {} },
+              serverInfo: { name: 'google-stitch-mcp', version: '1.0.0' },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (rpcMethod === 'notifications/initialized') {
+        return new Response(null, { status: 202 });
+      }
+      if (rpcMethod === 'tools/list') {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: body.id,
+            result: {
+              tools: [
+                { name: 'create_project', inputSchema: { type: 'object' } },
+                { name: 'get_project', inputSchema: { type: 'object' } },
+                { name: 'list_projects', inputSchema: { type: 'object' } },
+                { name: 'generate_screen_from_text', inputSchema: { type: 'object' } },
+                { name: 'edit_screens', inputSchema: { type: 'object' } },
+                { name: 'get_screen', inputSchema: { type: 'object' } },
+                { name: 'list_screens', inputSchema: { type: 'object' } },
+              ],
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (rpcMethod === 'tools/call') {
+        const toolName = body?.params?.name;
+        if (toolName === 'create_project') {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: body.id,
+              result: {
+                structuredContent: { name: 'projects/stitch-phase2-proj', title: 'Stitch Project' },
+                content: [{ type: 'text', text: JSON.stringify({ name: 'projects/stitch-phase2-proj' }) }],
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+        if (toolName === 'generate_screen_from_text' || toolName === 'edit_screens') {
+          const payload = {
+            outputComponents: [
+              {
+                design: {
+                  screens: [
+                    {
+                      id: 'scr-phase2-1',
+                      name: 'projects/stitch-phase2-proj/screens/scr-phase2-1',
+                      title: 'Stitch Screen',
+                      htmlCode: { downloadUrl: 'https://stitch.googleapis.com/artifacts/scr-phase2-1.html' },
+                      screenshot: { downloadUrl: 'https://stitch.googleapis.com/artifacts/scr-phase2-1.png' },
+                    },
+                  ],
+                },
+              },
+            ],
+          };
+          return new Response(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: body.id,
+              result: {
+                structuredContent: payload,
+                content: [{ type: 'text', text: JSON.stringify(payload) }],
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+      }
+    }
 
     // Cohere v2 response shape
     if (url === 'https://api.cohere.com/v2/chat') {
@@ -570,54 +682,80 @@ describe('Phase 1 & Phase 2 — Provider Configuration Authority, Endpoint Valid
       tc.verifyHeaders(recordedRequests[0].headers);
     }
 
-    // Verify Stitch Designer Engine succeeds for connection test & Gate 2 UI/UX DesignArtifact synthesis without calling Gemini
+    // Verify Stitch MCP requires an actual Stitch API key (never synthesizes locally without a key)
+    recordedRequests.length = 0;
+    const stitchNoKeyRes = await executeProviderRequest(
+      {
+        providerType: 'stitch',
+        providerId: 'prov-stitch',
+        providerName: 'Google Stitch (UI/UX Design AI)',
+        configuredModel: 'GEMINI_3_FLASH',
+        endpoint: 'https://stitch.googleapis.com/mcp',
+        apiKey: '',
+        keySource: 'Missing Key',
+        userPrompt: 'Connection Verification Test',
+      },
+      { fetchImpl: mockHttpClient }
+    );
+    expect(stitchNoKeyRes.ok).toBe(false);
+    expect(stitchNoKeyRes.status).toBe('auth_error');
+    expect(recordedRequests.length).toBe(0);
+
+    // Verify Stitch MCP succeeds with a valid Stitch API key against https://stitch.googleapis.com/mcp
     recordedRequests.length = 0;
     const stitchPingRes = await executeProviderRequest(
       {
         providerType: 'stitch',
         providerId: 'prov-stitch',
         providerName: 'Google Stitch (UI/UX Design AI)',
-        configuredModel: 'google-stitch-v2-ui',
-        endpoint: 'https://stitch.withgoogle.com/api/v1/generate',
-        apiKey: '',
-        keySource: 'Stitch Canvas Engine',
+        configuredModel: 'GEMINI_3_FLASH',
+        endpoint: 'https://stitch.googleapis.com/mcp',
+        apiKey: 'AQ.ValidStitchKey_Phase2_12345',
+        keySource: 'Admin Stitch Key',
         userPrompt: 'Connection Verification Test',
       },
       { fetchImpl: mockHttpClient }
     );
     expect(stitchPingRes.ok).toBe(true);
     expect(stitchPingRes.status).toBe('succeeded');
+    expect(stitchPingRes.transport).toBe('mcp');
+    expect(stitchPingRes.remoteEndpoint).toBe('https://stitch.googleapis.com/mcp');
+    expect(stitchPingRes.authenticationVerified).toBe(true);
+    expect(stitchPingRes.toolDiscoveryVerified).toBe(true);
     expect(stitchPingRes.response).toContain('Google Stitch');
-    expect(recordedRequests.length).toBe(0);
+    expect(recordedRequests.some((r) => r.url === 'https://stitch.googleapis.com/mcp')).toBe(true);
 
     const stitchDesignRes = await executeProviderRequest(
       {
         providerType: 'stitch',
         providerId: 'prov-stitch',
         providerName: 'Google Stitch (UI/UX Design AI)',
-        configuredModel: 'google-stitch-v2-ui',
-        endpoint: 'https://stitch.withgoogle.com/api/v1/generate',
-        apiKey: '',
-        keySource: 'Stitch Canvas Engine',
-        userPrompt: `Create or update the Gate 2 UI/UX DesignArtifact based on the following inputs:\n\nApproved Gate 1 PRD (Version v1):\n{\n  "projectName": "منصة عقار ذكي",\n  "overview": "منصة حجز معاينات عقارية",\n  "features": ["حجز موعد معاينة", "لوحة تحكم العقارات"]\n}\n\nCustomer Design Instruction:\nأضف شاشة تقارير العقارات باللون الأزرق`,
+        configuredModel: 'GEMINI_3_FLASH',
+        endpoint: 'https://stitch.googleapis.com/mcp',
+        apiKey: 'AQ.ValidStitchKey_Phase2_12345',
+        keySource: 'Admin Stitch Key',
+        userPrompt: `Create or update the Gate 2 UI/UX DesignArtifact based on the following inputs:\n\nApproved Gate 1 PRD (Version v1):\n{\n  "projectName": "موقع لبيع السيارات",\n  "overview": "منصة بيع وشراء السيارات",\n  "features": ["إعلانات السيارات", "البحث والفلاتر", "تفاصيل السيارة"]\n}\n\nCustomer Design Instruction:\nصمم واجهات موقع بيع السيارات`,
       },
       { fetchImpl: mockHttpClient }
     );
     expect(stitchDesignRes.ok).toBe(true);
     expect(stitchDesignRes.status).toBe('succeeded');
     const parsedStitchDesign = JSON.parse(stitchDesignRes.response || '{}');
-    expect(parsedStitchDesign.rtl).toBe(true);
-    expect(parsedStitchDesign.screens.length).toBeGreaterThanOrEqual(3);
-    expect(parsedStitchDesign.designTokens.primaryColor).toBe('#2563EB');
+    expect(parsedStitchDesign.design.designSpecification.direction).toBe('rtl');
+    expect(parsedStitchDesign.design.screenInventory.length).toBe(6);
+    expect(parsedStitchDesign.design.stitchMetadata.remoteProjectId).toBe('stitch-phase2-proj');
 
-    // Verify Gate 2 Agent is assigned to Google Stitch by default and /api/admin/test-connection succeeds for Gate 2
+    // Verify Gate 2 Agent is assigned to Google Stitch by default and /api/admin/test-connection verifies MCP with a key
     const adminCheckRes = await request(appInstance)
       .post('/api/admin/test-connection')
-      .send({ gate: 2 });
+      .send({ gate: 2, customKey: 'AQ.ValidStitchKey_Phase2_12345' });
     expect(adminCheckRes.status).toBe(200);
     expect(adminCheckRes.body.ok).toBe(true);
     expect(adminCheckRes.body.providerType).toBe('stitch');
+    expect(adminCheckRes.body.transport).toBe('mcp');
+    expect(adminCheckRes.body.remoteEndpoint).toBe('https://stitch.googleapis.com/mcp');
 
+    recordedRequests.length = 0;
     const cloudRes = await executeProviderRequest(
       {
         providerType: 'cloud',

@@ -103,6 +103,13 @@ export interface AIAdapterResponse {
   keySource: string;
   error?: string;
   statusCode?: number;
+  transport?: 'mcp' | 'http';
+  remoteEndpoint?: string;
+  authenticationVerified?: boolean;
+  toolDiscoveryVerified?: boolean;
+  discoveredTools?: string[];
+  stitchProjectId?: string;
+  stitchScreenIds?: string[];
 }
 
 export interface ProviderAdapter {

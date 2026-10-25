@@ -242,9 +242,9 @@ export const PROVIDER_ENDPOINT_REGISTRY: Record<ProviderType, ProviderEndpointSp
   },
   stitch: {
     providerType: 'stitch',
-    defaultEndpoint: 'https://stitch.withgoogle.com/api/v1/generate',
-    allowedHosts: ['stitch.withgoogle.com'],
-    operationPath: '/api/v1/generate',
+    defaultEndpoint: 'https://stitch.googleapis.com/mcp',
+    allowedHosts: ['stitch.googleapis.com', 'stitch.withgoogle.com'],
+    operationPath: '/mcp',
     protocol: 'stitch_integration',
   },
   cloud: {
@@ -466,21 +466,25 @@ export function validateAndNormalizeEndpointForProvider(
     }
 
     if (providerType === 'stitch') {
+      // Automatically migrate legacy stitch.withgoogle.com endpoints to the official Stitch MCP service
+      if (hostLower === 'stitch.withgoogle.com' || hostLower.endsWith('.stitch.withgoogle.com')) {
+        return { valid: true, endpoint: 'https://stitch.googleapis.com/mcp' };
+      }
       if (
         !pathLower ||
-        pathLower === '/api' ||
-        pathLower === '/api/v1' ||
-        pathLower === '/v1' ||
-        pathLower === '/v1/generate' ||
+        pathLower === '/' ||
+        pathLower === '/mcp' ||
+        pathLower === '/v1/mcp' ||
         pathLower === '/api/v1/generate'
       ) {
-        parsedUrl.pathname = '/api/v1/generate';
+        parsedUrl.hostname = 'stitch.googleapis.com';
+        parsedUrl.pathname = '/mcp';
         return { valid: true, endpoint: parsedUrl.toString() };
       }
       return {
         valid: false,
         endpoint: trimmed,
-        error: `مسار الاتصال لمحرك Google Stitch غير صالح (${cleanPath}). المسار الصحيح هو /api/v1/generate.`,
+        error: `مسار الاتصال لخدمة Google Stitch MCP غير صالح (${cleanPath}). المسار الصحيح هو https://stitch.googleapis.com/mcp.`,
       };
     }
 
@@ -492,6 +496,7 @@ export function validateAndNormalizeEndpointForProvider(
     hostLower === 'generativelanguage.googleapis.com' ||
     hostLower === 'api.anthropic.com' ||
     hostLower === 'stitch.withgoogle.com' ||
+    hostLower === 'stitch.googleapis.com' ||
     hostLower === 'api.cohere.com'
   ) {
     return {
@@ -578,9 +583,30 @@ function cleanApiKeyCandidate(val?: string): string {
 function isModelCompatibleWithProvider(model: string, providerType: ProviderType): boolean {
   const m = (model || '').toLowerCase().trim();
   if (!m) return false;
-  if (providerType !== 'gemini' && m.startsWith('gemini-')) return false;
-  if (providerType !== 'stitch' && m.includes('stitch')) return false;
+  if (providerType === 'stitch') {
+    return (
+      m === 'gemini_3_flash' ||
+      m === 'gemini_3_1_pro' ||
+      m === 'gemini_3_pro' ||
+      m.includes('stitch') ||
+      m.startsWith('gemini-')
+    );
+  }
+  if (providerType !== 'gemini' && (m.startsWith('gemini-') || m.startsWith('gemini_'))) return false;
+  if (m.includes('stitch')) return false;
   return true;
+}
+
+function normalizeConfiguredModelForProvider(model: string, providerType: ProviderType): string {
+  const trimmed = (model || '').trim();
+  if (providerType === 'stitch') {
+    const upper = trimmed.toUpperCase().replace(/[\s.-]+/g, '_');
+    if (upper === 'GEMINI_3_1_PRO' || upper.includes('3_1_PRO')) return 'GEMINI_3_1_PRO';
+    if (upper === 'GEMINI_3_PRO' || (upper.includes('3_PRO') && !upper.includes('3_1'))) return 'GEMINI_3_PRO';
+    if (upper === 'GEMINI_3_FLASH' || upper.includes('FLASH')) return 'GEMINI_3_FLASH';
+    return 'GEMINI_3_FLASH';
+  }
+  return trimmed;
 }
 
 export function resolveAdminTargetCredentials(params: {
@@ -624,7 +650,10 @@ export function resolveAdminTargetCredentials(params: {
       id: providerId,
       name: providerOverride?.name || foundProv?.name || providerId,
       providerType: inferredType,
-      model: (providerOverride?.model || foundProv?.model || '').trim(),
+      model: normalizeConfiguredModelForProvider(
+        (providerOverride?.model || foundProv?.model || '').trim(),
+        inferredType
+      ),
       status: providerOverride?.status || foundProv?.status || 'active',
       enabled:
         typeof providerOverride?.enabled === 'boolean'
@@ -654,7 +683,7 @@ export function resolveAdminTargetCredentials(params: {
       : '';
 
     let apiKey = '';
-    let keySource = pType === 'stitch' ? 'Stitch Canvas Engine' : 'Missing';
+    let keySource = 'Missing';
     if (explicitCustom) {
       apiKey = explicitCustom;
       keySource = 'Custom Key';
@@ -713,10 +742,11 @@ export function resolveAdminTargetCredentials(params: {
   });
 
   const providerModel = (providerOverride?.model || foundProv?.model || '').trim();
-  const configuredModel =
+  const rawSelectedModel =
     mergedAgent.model && isModelCompatibleWithProvider(mergedAgent.model, pType)
       ? mergedAgent.model
       : providerModel || mergedAgent.model || '';
+  const configuredModel = normalizeConfiguredModelForProvider(rawSelectedModel, pType);
 
   const endpoint = normalizeEndpointForProviderType(
     pType,
@@ -730,7 +760,7 @@ export function resolveAdminTargetCredentials(params: {
   const envKey = allowEnv ? resolveSystemEnvKeyForProvider(pType, managedGeminiApiKey) : '';
 
   let apiKey = '';
-  let keySource = pType === 'stitch' ? 'Stitch Canvas Engine' : 'Missing';
+  let keySource = 'Missing';
   if (explicitCustom) {
     apiKey = explicitCustom;
     keySource = 'Custom Key';
@@ -830,7 +860,7 @@ export function resolveProjectGateCredentials(params: {
       providerId: conn.id,
       providerType: pType,
       providerName: conn.provider,
-      configuredModel: conn.model,
+      configuredModel: normalizeConfiguredModelForProvider(conn.model, pType),
       apiKey: conn.apiKey.trim(),
       keySource: 'Customer BYOK Vault',
       endpoint: normalizeEndpointForProviderType(pType, conn.endpoint),
@@ -855,11 +885,14 @@ export function resolveProjectGateCredentials(params: {
     managedGeminiApiKey,
   });
 
-  if (!resolved.apiKey && resolved.providerType !== 'stitch') {
+  if (!resolved.apiKey) {
     const err: any = new Error(
-      `مفتاح الذكاء الاصطناعي المدار للمزود (${resolved.providerType}) في البوابة ${gate} غير مهيأ على الخادم.`
+      resolved.providerType === 'stitch'
+        ? `مفتاح Google Stitch API Key (X-Goog-Api-Key) غير مهيأ على الخادم للبوابة ${gate}. يرجى إدخال مفتاح Stitch الرسمي في لوحة الإدارة للاتصال بـ https://stitch.googleapis.com/mcp.`
+        : `مفتاح الذكاء الاصطناعي المدار للمزود (${resolved.providerType}) في البوابة ${gate} غير مهيأ على الخادم.`
     );
     err.statusCode = 503;
+    err.errorType = 'auth_error';
     throw err;
   }
 
