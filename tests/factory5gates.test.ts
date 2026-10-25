@@ -490,7 +490,9 @@ export function getPatients(): PatientRecord[] { return [{ id: '1', name: 'أح�
       .send({ prompt: 'قم بتوليد تصميم الواجهات الأساسي' });
     expect(gen2.status).toBe(200);
     expect(gen2.body.version).toBe(1);
-    expect(gen2.body.artifact.screens.length).toBe(2);
+    expect(gen2.body.artifact.screens.length).toBe(4);
+    expect(gen2.body.artifact.projectName).toContain('العيادة');
+    expect(JSON.stringify(gen2.body.artifact)).not.toContain('فيلا');
 
     // Request Gate 2 update to add a new screen ("شاشة تقارير المبيعات")
     const update2 = await request(appInstance)
@@ -499,7 +501,7 @@ export function getPatients(): PatientRecord[] { return [{ id: '1', name: 'أح�
       .send({ prompt: 'أضف شاشة تقارير المبيعات إلى التصميم' });
     expect(update2.status).toBe(200);
     expect(update2.body.version).toBe(2);
-    expect(update2.body.artifact.screens.length).toBe(3);
+    expect(update2.body.artifact.screens.length).toBe(5);
     expect(update2.body.artifact.screens.some((s: any) => s.name.includes('تقارير المبيعات'))).toBe(true);
 
     // Approve Gate 2

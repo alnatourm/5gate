@@ -743,18 +743,16 @@ export default function App() {
     { id: string; provider: string; model: string; active: boolean; hasKey: boolean; maskedKey: string }[]
   >([]);
 
-  // Google Stitch Live Canvas State (Gate 2 Interactive Design Studio)
-  const [stitchScreenTab, setStitchScreenTab] = useState<string>(() => {
-    return localStorage.getItem('ogroup_stitch_active_tab') || 'landing';
-  });
+  // Google Stitch Live Canvas State (Gate 2 Interactive Design Studio — dynamically driven by Gate 1 PRD)
+  const [stitchScreenTab, setStitchScreenTab] = useState<string>('landing');
   const [stitchViewport, setStitchViewport] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
   const [stitchTheme, setStitchTheme] = useState<'orange' | 'blue' | 'emerald' | 'violet' | 'dark'>('orange');
-  const [stitchSelectedDay, setStitchSelectedDay] = useState<string>('الأحد 18 أكتوبر');
-  const [stitchSelectedSlot, setStitchSelectedSlot] = useState<string>('11:00 صباحاً');
+  const [stitchSelectedDay, setStitchSelectedDay] = useState<string>('');
+  const [stitchSelectedSlot, setStitchSelectedSlot] = useState<string>('');
   const [stitchBookingClient, setStitchBookingClient] = useState<string>('');
-  const [stitchBookingService, setStitchBookingService] = useState<string>('معاينة فيلا سكنية - دابوق');
-  const [stitchHeroLocation, setStitchHeroLocation] = useState<string>('دابوق - عمان');
-  const [stitchHeroType, setStitchHeroType] = useState<string>('فيلا سكنية مستقلة');
+  const [stitchBookingService, setStitchBookingService] = useState<string>('');
+  const [stitchHeroLocation, setStitchHeroLocation] = useState<string>('');
+  const [stitchHeroType, setStitchHeroType] = useState<string>('');
   const [stitchCustomPages, setStitchCustomPages] = useState<
     {
       id: string;
@@ -765,22 +763,10 @@ export default function App() {
       aiSummary: string;
       htmlCode?: string;
     }[]
-  >(() => {
-    try {
-      const saved = localStorage.getItem('ogroup_stitch_custom_pages');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  >([]);
   const [stitchAppointments, setStitchAppointments] = useState<
     { id: string; client: string; property: string; time: string; agent: string; status: 'مؤكد' | 'قيد التأكيد' | 'مكتمل' }[]
-  >([
-    { id: 'APT-101', client: 'م. طارق زياد العتيبي', property: 'معاينة فيلا دابوق الملكية', time: '10:30 صباحاً', agent: 'أ. سامر الحسن', status: 'مؤكد' },
-    { id: 'APT-102', client: 'سارة فهد المنصور', property: 'استشارة تمويل وشراء شقة عبدون', time: '12:00 ظهراً', agent: 'م. ريم الكردي', status: 'قيد التأكيد' },
-    { id: 'APT-103', client: 'شركة الأفق للاستثمار', property: 'توقيع عقد مكاتب تجارية - العبدلي', time: '02:30 مساءً', agent: 'أ. سامر الحسن', status: 'مؤكد' },
-    { id: 'APT-104', client: 'د. خالد إبراهيم العمري', property: 'جولة ميدانية - مشروع بوابة عمان', time: '04:30 مساءً', agent: 'م. ريم الكردي', status: 'مكتمل' },
-  ]);
+  >([]);
 
   // New Project Form State
   const [newProjName, setNewProjName] = useState('');
@@ -797,6 +783,10 @@ export default function App() {
   const [savedFactoryAgents, setSavedFactoryAgents] = useState<FactoryAgent[]>(DEFAULT_AGENTS);
   const [factoryProviders, setFactoryProviders] = useState<FactoryProvider[]>(DEFAULT_PROVIDERS);
   const [factoryAgents, setFactoryAgents] = useState<FactoryAgent[]>(DEFAULT_AGENTS);
+  const currentGateAgent =
+    factoryAgents.find(a => a.gate === (activeProject?.currentGate || 1)) ||
+    factoryAgents[0] ||
+    DEFAULT_AGENTS[0];
   const [configSaveError, setConfigSaveError] = useState<string | null>(null);
   const [isSavingConfig, setIsSavingConfig] = useState<boolean>(false);
   const [hasSystemEnvKey, setHasSystemEnvKey] = useState(true);
@@ -867,15 +857,16 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('ogroup_active_project_id', activeProjectId);
+    // Reset project-scoped interactive canvas selections when switching projects
+    setStitchAppointments([]);
+    setStitchCustomPages([]);
+    setStitchSelectedDay('');
+    setStitchSelectedSlot('');
+    setStitchBookingClient('');
+    setStitchBookingService('');
+    setStitchHeroLocation('');
+    setStitchHeroType('');
   }, [activeProjectId]);
-
-  useEffect(() => {
-    localStorage.setItem('ogroup_stitch_active_tab', stitchScreenTab);
-  }, [stitchScreenTab]);
-
-  useEffect(() => {
-    localStorage.setItem('ogroup_stitch_custom_pages', JSON.stringify(stitchCustomPages));
-  }, [stitchCustomPages]);
 
   // Load authoritative providers and agents from backend on mount (never overwrite backend from localStorage, never auto-POST)
   useEffect(() => {
@@ -1914,34 +1905,32 @@ export default function App() {
 
         showToast(`تم اعتماد وقفل وثيقة المتطلبات (v${approval.approvedVersion}) والانتقال إلى البوابة 2 بنجاح!`);
 
-        // Automatically synthesize initial Stitch design onto the Live Stitch Canvas when entering Gate 2
-        if (!gate2Design) {
-          try {
-            setIsAiProcessing(true);
-            const g2Res = await fetch(`/api/projects/${activeProject.id}/gates/2/generate`, {
-              method: 'POST',
-              headers: authHeaders(),
-              body: JSON.stringify({
-                prompt: `قم بتوليد تصميم الواجهات التفاعلية والشاشات لمشروع "${approval.document.projectName}" على لوحة Google Stitch Canvas استناداً إلى وثيقة المتطلبات المعتمدة.`,
-              }),
-            });
-            const g2Data = await g2Res.json();
-            if (g2Res.ok && g2Data.artifact) {
-              const design = g2Data.artifact as DesignArtifact;
-              setGate2Design(design);
-              setGate2Version(g2Data.version);
-              setGate2Locked(false);
-              if (design.screens?.length > 0) {
-                const firstScreenId = design.screens[0].id;
-                setGate2ActiveScreenId(firstScreenId);
-                setStitchScreenTab(`stitch-screen:${firstScreenId}`);
-              }
+        // Always synthesize/refresh Stitch design from the newly approved Gate 1 PRD when entering Gate 2
+        try {
+          setIsAiProcessing(true);
+          const g2Res = await fetch(`/api/projects/${activeProject.id}/gates/2/generate`, {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({
+              prompt: `قم بتوليد وتحديث تصميم الواجهات التفاعلية والشاشات لمشروع "${approval.document.projectName}" (${approval.document.overview}) على لوحة Google Stitch Canvas استناداً إلى وثيقة المتطلبات المعتمدة.`,
+            }),
+          });
+          const g2Data = await g2Res.json();
+          if (g2Res.ok && g2Data.artifact) {
+            const design = g2Data.artifact as DesignArtifact;
+            setGate2Design(design);
+            setGate2Version(g2Data.version);
+            setGate2Locked(false);
+            if (design.screens?.length > 0) {
+              const firstScreenId = design.screens[0].id;
+              setGate2ActiveScreenId(firstScreenId);
+              setStitchScreenTab(`stitch-screen:${firstScreenId}`);
             }
-          } catch {
-            // Non-blocking if manual generation is preferred
-          } finally {
-            setIsAiProcessing(false);
           }
+        } catch {
+          // Non-blocking if manual generation is preferred
+        } finally {
+          setIsAiProcessing(false);
         }
         return;
       }
@@ -5534,6 +5523,93 @@ export default function App() {
                       )}
 
                       {activeProject.currentGate === 2 && (() => {
+                        const currentGateAgent =
+                          factoryAgents.find(a => a.gate === 2) ||
+                          factoryAgents.find(a => a.gate === activeProject.currentGate) ||
+                          factoryAgents[0] ||
+                          DEFAULT_AGENTS[1];
+
+                        // Authoritative Gate 1 PRD source for this project (never falls back to unrelated industries)
+                        const prdSource: RequirementsDocument =
+                          gate1ApprovedArtifact?.document ||
+                          gate1Document || {
+                            projectName: activeProject.name || 'المشروع',
+                            overview: activeProject.description || `نظام برمجي متكامل لـ ${activeProject.name}`,
+                            objectives: [`أتمتة وإدارة عمليات ${activeProject.name} بكفاءة عالية`],
+                            userRoles: ['مدير النظام', 'مشرف العمليات', 'المستخدم النهائي'],
+                            features: [
+                              'إدارة الحسابات والصلاحيات',
+                              'لوحة تحكم رئيسية لمتابعة العمليات',
+                              'إدارة السجلات والطلبات',
+                              'التقارير التحليلية المتقدمة',
+                            ],
+                            userJourneys: [
+                              'تسجيل الدخول واستعراض لوحة المؤشرات الحية',
+                              'إدخال ومعالجة العمليات الأساسية في النظام',
+                              'مراجعة التقارير التحليلية واعتماد المخرجات',
+                            ],
+                            businessRules: ['التحقق من الصلاحيات وصحة البيانات قبل الحفظ'],
+                            dataRequirements: ['المستخدمون والصلاحيات', 'السجلات والعمليات الأساسية', 'التقارير'],
+                            integrations: ['بوابة الإشعارات والربط البرمجي API'],
+                            acceptanceCriteria: ['عمل جميع الشاشات والنماذج وفق المتطلبات المعتمدة'],
+                            assumptions: ['توفر اتصال إنترنت مستقر'],
+                            exclusions: [],
+                          };
+
+                        const prdFeatures =
+                          prdSource.features && prdSource.features.length > 0
+                            ? prdSource.features
+                            : ['إدارة العمليات الرئيسية', 'متابعة الطلبات والسجلات', 'التقارير التحليلية'];
+                        const prdRoles =
+                          prdSource.userRoles && prdSource.userRoles.length > 0
+                            ? prdSource.userRoles
+                            : ['مدير النظام', 'مشرف العمليات', 'المستخدم'];
+                        const prdEntities =
+                          prdSource.dataRequirements && prdSource.dataRequirements.length > 0
+                            ? prdSource.dataRequirements
+                            : ['السجلات الأساسية', 'الطلبات والعمليات', 'التقارير'];
+                        const prdJourneys =
+                          prdSource.userJourneys && prdSource.userJourneys.length > 0
+                            ? prdSource.userJourneys
+                            : ['تسجيل الدخول واستعراض لوحة التحكم', 'إضافة وتنفيذ عملية جديدة', 'اعتماد المخرجات والتقارير'];
+                        const prdRules =
+                          prdSource.businessRules && prdSource.businessRules.length > 0
+                            ? prdSource.businessRules
+                            : ['التحقق من صلاحيات الدور الوظيفي قبل التنفيذ'];
+                        const prdIntegrations =
+                          prdSource.integrations && prdSource.integrations.length > 0
+                            ? prdSource.integrations
+                            : ['الربط البرمجي والإشعارات'];
+                        const prdObjectives =
+                          prdSource.objectives && prdSource.objectives.length > 0
+                            ? prdSource.objectives
+                            : [prdSource.overview];
+
+                        const selectedFeature = stitchHeroType || prdFeatures[0];
+                        const selectedRole = stitchHeroLocation || prdRoles[0];
+                        const selectedEntity = stitchSelectedSlot || prdEntities[0];
+                        const activeRoleFilter = stitchSelectedDay || 'الكل';
+
+                        // Combine user-added session records with dynamic records derived from Gate 1 PRD
+                        const defaultProjectRecords = prdFeatures.map((feat, idx) => ({
+                          id: `REC-${101 + idx}`,
+                          client: `${prdEntities[idx % prdEntities.length]} — ${prdSource.projectName}`,
+                          property: feat,
+                          time: prdIntegrations[idx % prdIntegrations.length] || 'مفعل آنياً',
+                          agent: prdRoles[idx % prdRoles.length],
+                          status: (idx % 3 === 0 ? 'مؤكد' : idx % 3 === 1 ? 'مكتمل' : 'قيد التأكيد') as
+                            | 'مؤكد'
+                            | 'قيد التأكيد'
+                            | 'مكتمل',
+                        }));
+                        const allProjectRecords = [...stitchAppointments, ...defaultProjectRecords];
+                        const filteredProjectRecords =
+                          activeRoleFilter === 'الكل'
+                            ? allProjectRecords
+                            : allProjectRecords.filter(
+                                r => r.agent === activeRoleFilter || r.property === activeRoleFilter
+                              );
+
                         const themeMap = {
                           orange: {
                             primaryBg: 'bg-orange-600',
@@ -5627,16 +5703,16 @@ export default function App() {
                                       🎨 مصمم البوابة الثانية: {currentGateAgent.providerName} ({currentGateAgent.model})
                                     </span>
                                     <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold">
-                                      ● متصل بلوحة Stitch Canvas الحية
+                                      ● متصل بمتطلبات البوابة 1 ولوحة Stitch Canvas الحية
                                     </span>
                                   </div>
                                   <h4 className="text-xs font-black text-slate-900">
-                                    مخرجات مصمم Google Stitch المهيكلة على لوحة الـ Canvas ({gate2Version > 0 ? `الإصدار v${gate2Version}` : 'جاهز للتوليد الفوري'})
+                                    مخرجات مصمم Google Stitch المهيكلة لمشروع "{prdSource.projectName}" ({gate2Version > 0 ? `الإصدار v${gate2Version}` : 'مرتبط بمتطلبات البوابة 1'})
                                   </h4>
                                   <p className="text-[11px] text-slate-500">
                                     {gate2Design
                                       ? `${gate2Design.designSummary} (${gate2Design.screens.length} شاشات مهيكلة، ${gate2Design.components.length} مكونات معروضة داخل لوحة Stitch التفاعلية أدناه)`
-                                      : 'اضغط على "توليد التصميم على لوحة Stitch" لتحويل المتطلبات المعتمدة في البوابة 1 إلى شاشات وتصاميم تفاعلية تعرض مباشرة داخل لوحة Stitch Canvas.'}
+                                      : `تم استيراد متطلبات "${prdSource.projectName}" (${prdFeatures.length} ميزات، ${prdRoles.length} أدوار، ${prdEntities.length} كيانات بيانات) مباشرة إلى لوحة Stitch التفاعلية.`}
                                   </p>
                                 </div>
                                 {!gate2Locked && (
@@ -5645,7 +5721,7 @@ export default function App() {
                                     disabled={isAiProcessing}
                                     onClick={() =>
                                       executeStageAgentPrompt(
-                                        `قم بتوليد وتحديث تصميم الواجهات التفاعلية والشاشات لمشروع "${activeProject.name}" على لوحة Google Stitch Canvas استناداً إلى وثيقة المتطلبات المعتمدة.`
+                                        `قم بتوليد وتحديث تصميم الواجهات التفاعلية والشاشات لمشروع "${prdSource.projectName}" (${prdSource.overview}) على لوحة Google Stitch Canvas استناداً إلى وثيقة المتطلبات المعتمدة.`
                                       )
                                     }
                                     className="px-3.5 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs transition flex items-center gap-1.5"
@@ -5659,10 +5735,10 @@ export default function App() {
                               {gate2Design && gate2Design.screens.length > 0 && (
                                 <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 flex-wrap">
                                   <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className="text-[11px] font-bold text-slate-500 ml-1">شاشات المشروع في Stitch Canvas:</span>
+                                    <span className="text-[11px] font-bold text-slate-500 ml-1">شاشات المشروع المولدة في Stitch Canvas:</span>
                                     {gate2Design.screens.map((scr, sIdx) => {
                                       const tabKey = `stitch-screen:${scr.id}`;
-                                      const isSelected = stitchScreenTab === tabKey || (!stitchScreenTab.startsWith('stitch-screen:') && (gate2ActiveScreenId || gate2Design.screens[0].id) === scr.id);
+                                      const isSelected = stitchScreenTab === tabKey;
                                       return (
                                         <button
                                           key={scr.id}
@@ -5694,9 +5770,49 @@ export default function App() {
                               )}
                             </div>
 
-                            {/* Stitch Studio Screen Tabs & Theme Bar */}
+                            {/* Stitch Studio Screen Tabs & Theme Bar — 100% Project-Specific */}
                             <div className="bg-white rounded-2xl p-3 border border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs shadow-2xs">
                               <div className="flex items-center gap-1.5 flex-wrap">
+                                <button
+                                  type="button"
+                                  onClick={() => setStitchScreenTab('landing')}
+                                  className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 ${
+                                    stitchScreenTab === 'landing'
+                                      ? 'bg-orange-600 text-white shadow-xs'
+                                      : 'bg-orange-50 text-orange-800 border border-orange-200 hover:bg-orange-100'
+                                  }`}
+                                >
+                                  <Sparkles className="w-3.5 h-3.5" />
+                                  <span>1. الواجهة الرئيسية ({prdSource.projectName})</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setStitchScreenTab('dashboard')}
+                                  className={`px-3 py-1.5 rounded-xl font-bold transition ${
+                                    stitchScreenTab === 'dashboard' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                  }`}
+                                >
+                                  2. لوحة التحكم والعمليات ({prdFeatures[0] || 'العمليات'})
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setStitchScreenTab('booking')}
+                                  className={`px-3 py-1.5 rounded-xl font-bold transition ${
+                                    stitchScreenTab === 'booking' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                  }`}
+                                >
+                                  3. نموذج الإدخال ({prdEntities[0] || 'عملية جديدة'})
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setStitchScreenTab('portal')}
+                                  className={`px-3 py-1.5 rounded-xl font-bold transition ${
+                                    stitchScreenTab === 'portal' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                  }`}
+                                >
+                                  4. الوحدات والبيانات ({prdFeatures.length})
+                                </button>
+
                                 {/* Persisted Stitch Project Screens Connected Directly to Canvas Tabs */}
                                 {gate2Design &&
                                   gate2Design.screens.map((scr, sIdx) => {
@@ -5712,54 +5828,13 @@ export default function App() {
                                         className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 ${
                                           stitchScreenTab === tabKey
                                             ? 'bg-orange-600 text-white shadow-xs'
-                                            : 'bg-orange-50 text-orange-800 border border-orange-200 hover:bg-orange-100'
+                                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                                         }`}
                                       >
-                                        <Sparkles className="w-3.5 h-3.5" />
-                                        <span>شاشة {sIdx + 1}: {scr.name}</span>
+                                        <span>شاشة Stitch {sIdx + 1}: {scr.name}</span>
                                       </button>
                                     );
                                   })}
-
-                                <button
-                                  type="button"
-                                  onClick={() => setStitchScreenTab('landing')}
-                                  className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 ${
-                                    stitchScreenTab === 'landing'
-                                      ? 'bg-orange-600 text-white shadow-xs'
-                                      : 'bg-orange-50 text-orange-800 border border-orange-200 hover:bg-orange-100'
-                                  }`}
-                                >
-                                  <Sparkles className="w-3.5 h-3.5" />
-                                  <span>1. الصفحة الرئيسية (Landing Page)</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setStitchScreenTab('dashboard')}
-                                  className={`px-3 py-1.5 rounded-xl font-bold transition ${
-                                    stitchScreenTab === 'dashboard' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                  }`}
-                                >
-                                  2. لوحة المواعيد الرئيسية
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setStitchScreenTab('booking')}
-                                  className={`px-3 py-1.5 rounded-xl font-bold transition ${
-                                    stitchScreenTab === 'booking' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                  }`}
-                                >
-                                  3. نموذج الحجز الفوري
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setStitchScreenTab('portal')}
-                                  className={`px-3 py-1.5 rounded-xl font-bold transition ${
-                                    stitchScreenTab === 'portal' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                  }`}
-                                >
-                                  4. بوابة العقارات والعملاء
-                                </button>
 
                                 {/* Dynamically Added Pages from Gate 2 Chat */}
                                 {stitchCustomPages.map((cp, idx) => (
@@ -5820,7 +5895,7 @@ export default function App() {
                                   <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span>
                                   <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block"></span>
                                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
-                                  <span className="mr-2 font-bold text-white">{gate2Design?.projectName || activeProject.name}</span>
+                                  <span className="mr-2 font-bold text-white">{prdSource.projectName}</span>
                                 </div>
                                 <div className="px-3 py-0.5 rounded-md bg-slate-800 text-slate-400 font-mono text-[10px]" dir="ltr">
                                   stitch://live-canvas/{activeProject.id}/{stitchScreenTab}
@@ -5830,38 +5905,19 @@ export default function App() {
                                 </span>
                               </div>
 
-                              {/* Inner Designed Application Header / Sticky Navbar */}
+                              {/* Inner Designed Application Header / Sticky Navbar — Project-Driven */}
                               <div className={`px-5 py-3.5 border-b flex flex-wrap items-center justify-between gap-3 ${themeMap.cardBg}`}>
                                 <div className="flex items-center gap-2.5">
                                   <div className={`w-9 h-9 rounded-xl ${themeMap.primaryBg} text-white flex items-center justify-center font-black text-sm shadow-xs`}>
-                                    {(gate2Design?.projectName || activeProject.name || 'مشروع').slice(0, 4)}
+                                    {(prdSource.projectName || 'مشروع').slice(0, 4)}
                                   </div>
                                   <div>
-                                    <div className="font-black text-xs">{gate2Design?.projectName || activeProject.name}</div>
-                                    <div className="text-[10px] opacity-60">{gate2Design?.designSummary || activeProject.designNotes}</div>
+                                    <div className="font-black text-xs">{prdSource.projectName}</div>
+                                    <div className="text-[10px] opacity-60">{prdSource.overview}</div>
                                   </div>
                                 </div>
 
                                 <div className="flex items-center gap-3 text-[11px] font-bold flex-wrap">
-                                  {gate2Design &&
-                                    gate2Design.screens.map((scr) => {
-                                      const tabKey = `stitch-screen:${scr.id}`;
-                                      return (
-                                        <button
-                                          key={tabKey}
-                                          type="button"
-                                          onClick={() => {
-                                            setGate2ActiveScreenId(scr.id);
-                                            setStitchScreenTab(tabKey);
-                                          }}
-                                          className={`transition ${
-                                            stitchScreenTab === tabKey ? themeMap.lightText : 'opacity-65 hover:opacity-100'
-                                          }`}
-                                        >
-                                          {scr.name}
-                                        </button>
-                                      );
-                                    })}
                                   <button
                                     type="button"
                                     onClick={() => setStitchScreenTab('landing')}
@@ -5871,24 +5927,24 @@ export default function App() {
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => setStitchScreenTab('portal')}
-                                    className={`transition ${stitchScreenTab === 'portal' ? themeMap.lightText : 'opacity-65 hover:opacity-100'}`}
-                                  >
-                                    العقارات المتاحة
-                                  </button>
-                                  <button
-                                    type="button"
                                     onClick={() => setStitchScreenTab('dashboard')}
                                     className={`transition ${stitchScreenTab === 'dashboard' ? themeMap.lightText : 'opacity-65 hover:opacity-100'}`}
                                   >
-                                    جدول المواعيد
+                                    لوحة التحكم والعمليات
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setStitchScreenTab('portal')}
+                                    className={`transition ${stitchScreenTab === 'portal' ? themeMap.lightText : 'opacity-65 hover:opacity-100'}`}
+                                  >
+                                    الوحدات والبيانات ({prdFeatures.length})
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => setStitchScreenTab('booking')}
                                     className={`px-3 py-1.5 rounded-xl text-white text-[11px] font-bold shadow-xs transition ${themeMap.primaryBg} ${themeMap.primaryHover}`}
                                   >
-                                    + حجز موعد معاينة جديد
+                                    + إضافة {prdEntities[0] || 'عملية جديدة'}
                                   </button>
                                 </div>
                               </div>
@@ -6002,90 +6058,92 @@ export default function App() {
                                 );
                               })()}
 
-                              {/* TAB 0: LANDING PAGE (الصفحة الرئيسية - LANDING PAGE) */}
+                              {/* TAB 1: PROJECT LANDING & OVERVIEW WORKSPACE (100% DRIVEN BY GATE 1 PRD) */}
                               {stitchScreenTab === 'landing' && (
                                 <div className="flex-1 overflow-y-auto space-y-5 p-5">
-                                  {/* Luxury Real Estate Hero Banner (#0F172A Slate-900 + Gold/Brand Accent) */}
+                                  {/* Project Hero Banner */}
                                   <div className="rounded-3xl bg-slate-900 text-white p-6 md:p-7 relative overflow-hidden shadow-md border border-slate-800">
                                     <div className="relative z-10 space-y-4">
                                       <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-400/30 text-amber-300 text-[11px] font-bold">
-                                        <span>✨ الصفحة الرئيسية (Landing Page) • مصممة بواسطة Google Stitch</span>
+                                        <span>✨ الواجهة الرئيسية ({prdSource.projectName}) • مصممة بواسطة Google Stitch من متطلبات البوابة 1</span>
                                       </div>
                                       <h2 className="text-xl md:text-2xl font-black leading-snug">
-                                        احجز موعد معاينتك العقارية القادمة <span className="text-amber-400">في 60 ثانية</span>
+                                        {prdSource.projectName} — <span className="text-amber-400">{prdSource.overview}</span>
                                       </h2>
-                                      <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
-                                        منصة متكاملة لمعاينة الفلل السكنية، الشقق الطابقية، والمكاتب التجارية الفاخرة مع نخبة المستشارين العقاريين وتأكيد فوري للموعد عبر الواتساب وSMS.
+                                      <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+                                        الأهداف المعتمدة: {prdObjectives.join(' • ')}
                                       </p>
 
-                                      {/* Interactive Quick Search & Instant Booking Bar inside Hero */}
+                                      {/* Interactive Quick Launch Bar dynamically populated from Gate 1 features, roles, and data entities */}
                                       <div className="bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/15 grid grid-cols-1 md:grid-cols-4 gap-2.5 text-xs pt-3">
                                         <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
-                                          <label className="block text-[10px] text-slate-400 mb-1">المنطقة / الموقع</label>
+                                          <label className="block text-[10px] text-slate-400 mb-1">الوحدة / الميزة الأساسية</label>
                                           <select
-                                            value={stitchHeroLocation}
-                                            onChange={e => setStitchHeroLocation(e.target.value)}
-                                            className="w-full bg-transparent text-white font-bold text-xs focus:outline-none"
-                                          >
-                                            <option value="دابوق - عمان" className="text-slate-900">دابوق - عمان</option>
-                                            <option value="عبدون الشمالي" className="text-slate-900">عبدون الشمالي</option>
-                                            <option value="العبدلي بوليفارد" className="text-slate-900">العبدلي بوليفارد</option>
-                                            <option value="طريق المطار - غمدان" className="text-slate-900">طريق المطار - غمدان</option>
-                                          </select>
-                                        </div>
-
-                                        <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
-                                          <label className="block text-[10px] text-slate-400 mb-1">نوع العقار المطلوب</label>
-                                          <select
-                                            value={stitchHeroType}
+                                            value={selectedFeature}
                                             onChange={e => setStitchHeroType(e.target.value)}
                                             className="w-full bg-transparent text-white font-bold text-xs focus:outline-none"
                                           >
-                                            <option value="فيلا سكنية مستقلة" className="text-slate-900">فيلا سكنية مستقلة</option>
-                                            <option value="شقة طابقية فاخرة" className="text-slate-900">شقة طابقية فاخرة</option>
-                                            <option value="مكاتب تجارية ذكية" className="text-slate-900">مكاتب تجارية ذكية</option>
-                                            <option value="أرض استثمارية" className="text-slate-900">أرض استثمارية</option>
+                                            {prdFeatures.map((feat, idx) => (
+                                              <option key={idx} value={feat} className="text-slate-900">
+                                                {feat}
+                                              </option>
+                                            ))}
                                           </select>
                                         </div>
 
                                         <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
-                                          <label className="block text-[10px] text-slate-400 mb-1">الفترة المفضلة للمعاينة</label>
+                                          <label className="block text-[10px] text-slate-400 mb-1">الدور الوظيفي (User Role)</label>
                                           <select
-                                            value={stitchSelectedSlot}
+                                            value={selectedRole}
+                                            onChange={e => setStitchHeroLocation(e.target.value)}
+                                            className="w-full bg-transparent text-white font-bold text-xs focus:outline-none"
+                                          >
+                                            {prdRoles.map((role, idx) => (
+                                              <option key={idx} value={role} className="text-slate-900">
+                                                {role}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </div>
+
+                                        <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
+                                          <label className="block text-[10px] text-slate-400 mb-1">كيان البيانات المستهدف</label>
+                                          <select
+                                            value={selectedEntity}
                                             onChange={e => setStitchSelectedSlot(e.target.value)}
                                             className="w-full bg-transparent text-white font-bold text-xs focus:outline-none"
                                           >
-                                            <option value="09:30 صباحاً" className="text-slate-900">09:30 صباحاً</option>
-                                            <option value="11:00 صباحاً" className="text-slate-900">11:00 صباحاً</option>
-                                            <option value="01:00 ظهراً" className="text-slate-900">01:00 ظهراً</option>
-                                            <option value="03:30 مساءً" className="text-slate-900">03:30 مساءً</option>
-                                            <option value="05:00 مساءً" className="text-slate-900">05:00 مساءً</option>
+                                            {prdEntities.map((ent, idx) => (
+                                              <option key={idx} value={ent} className="text-slate-900">
+                                                {ent}
+                                              </option>
+                                            ))}
                                           </select>
                                         </div>
 
                                         <button
                                           type="button"
                                           onClick={() => {
-                                            setStitchBookingService(`${stitchHeroType} - ${stitchHeroLocation}`);
+                                            setStitchBookingService(selectedFeature);
                                             setStitchScreenTab('booking');
-                                            showToast(`تم اختيار "${stitchHeroType} - ${stitchHeroLocation}" للانتقال إلى الحجز الفوري`);
+                                            showToast(`تم فتح وحدة "${selectedFeature}" (${selectedEntity}) بصلاحية "${selectedRole}"`);
                                           }}
                                           className={`rounded-xl font-black text-xs text-white shadow-md transition flex items-center justify-center gap-1.5 py-3 ${themeMap.primaryBg} ${themeMap.primaryHover}`}
                                         >
-                                          <span>احجز موعد المعاينة الآن</span>
+                                          <span>بدء العملية في النظام</span>
                                           <span>←</span>
                                         </button>
                                       </div>
                                     </div>
                                   </div>
 
-                                  {/* Trust & Real Estate Metrics Strip */}
+                                  {/* Dynamic Metrics Strip from Gate 1 Requirements */}
                                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
                                     {[
-                                      { val: '+1,480', label: 'معاينة عقارية ناجحة', badge: 'موثق 100%' },
-                                      { val: '64 عقاراً', label: 'جاهز للمعاينة الفورية', badge: 'تحديث يومي' },
-                                      { val: '15 مستشاراً', label: 'خبراء عقاريون معتمدون', badge: 'خدمة VIP' },
-                                      { val: '98.4%', label: 'تقييم رضا العملاء', badge: 'تأكيد فوري SMS' },
+                                      { val: `${prdFeatures.length} وحدات`, label: 'الميزات الأساسية المعتمدة', badge: 'البوابة 1' },
+                                      { val: `${prdRoles.length} أدوار`, label: 'صلاحيات المستخدمين (RBAC)', badge: prdRoles[0] },
+                                      { val: `${prdEntities.length} كيانات`, label: 'نماذج وسجلات البيانات', badge: 'مهيكلة' },
+                                      { val: `${prdIntegrations.length} تكامل`, label: 'أنظمة الربط والإشعارات', badge: 'متصل' },
                                     ].map((stat, i) => (
                                       <div key={i} className={`p-3.5 rounded-2xl border shadow-2xs ${themeMap.cardBg}`}>
                                         <div className="text-base font-black tabular-nums">{stat.val}</div>
@@ -6097,172 +6155,186 @@ export default function App() {
                                     ))}
                                   </div>
 
-                                  {/* Featured Properties Preview on Landing Page */}
+                                  {/* Approved Features & Modules Cards on Landing Page */}
                                   <div className="space-y-2.5">
                                     <div className="flex items-center justify-between">
-                                      <h4 className="font-black text-xs">أبرز العقارات المتاحة لحجز معاينة هذا الأسبوع</h4>
+                                      <h4 className="font-black text-xs">
+                                        الوحدات والميزات المعتمدة في "{prdSource.projectName}" ({prdFeatures.length})
+                                      </h4>
                                       <button
                                         type="button"
                                         onClick={() => setStitchScreenTab('portal')}
                                         className={`text-[11px] font-bold ${themeMap.lightText} hover:underline`}
                                       >
-                                        عرض جميع العقارات (64) ←
+                                        استعراض جميع الوحدات وكيانات البيانات ({prdFeatures.length}) ←
                                       </button>
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                                      {[
-                                        { title: 'فيلا الياسمين الملكية - دابوق', specs: '620 م² • 5 غرف ماستر • مسبح خاص', price: '480,000 د.أ', status: 'متاح للمعاينة اليوم' },
-                                        { title: 'بنتهاوس بانوراما - عبدون', specs: '310 م² • ترس مطل • تشطيب فندقي', price: '245,000 د.أ', status: '3 أوقات متاحة' },
-                                        { title: 'مقر شركات ذكي - البوليفارد', specs: '400 م² • طابق كامل • مواقف خاصة', price: '320,000 د.أ', status: 'متاح للمعاينة غداً' },
-                                      ].map((item, idx) => (
-                                        <div key={idx} className={`p-4 rounded-2xl border flex flex-col justify-between space-y-3 shadow-2xs ${themeMap.cardBg}`}>
-                                          <div className="space-y-1.5">
-                                            <div className="flex items-center justify-between">
-                                              <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                                                ● {item.status}
-                                              </span>
-                                              <span className="font-black text-xs text-amber-600">{item.price}</span>
+                                      {prdFeatures.slice(0, 6).map((feat, idx) => {
+                                        const roleForCard = prdRoles[idx % prdRoles.length];
+                                        const entityForCard = prdEntities[idx % prdEntities.length];
+                                        return (
+                                          <div key={idx} className={`p-4 rounded-2xl border flex flex-col justify-between space-y-3 shadow-2xs ${themeMap.cardBg}`}>
+                                            <div className="space-y-1.5">
+                                              <div className="flex items-center justify-between">
+                                                <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                                                  ● وحدة معتمدة #{idx + 1}
+                                                </span>
+                                                <span className="font-bold text-[10px] text-amber-600">{roleForCard}</span>
+                                              </div>
+                                              <div className="font-bold text-xs">{feat}</div>
+                                              <div className="text-[11px] opacity-65">
+                                                البيانات المرتبطة: {entityForCard} • {prdRules[idx % prdRules.length]}
+                                              </div>
                                             </div>
-                                            <div className="font-bold text-xs">{item.title}</div>
-                                            <div className="text-[11px] opacity-65">{item.specs}</div>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setStitchBookingService(feat);
+                                                setStitchScreenTab('booking');
+                                              }}
+                                              className={`w-full py-2 rounded-xl text-white font-bold text-[11px] transition ${themeMap.primaryBg} ${themeMap.primaryHover}`}
+                                            >
+                                              فتح وتشغيل: {feat}
+                                            </button>
                                           </div>
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setStitchBookingService(item.title);
-                                              setStitchScreenTab('booking');
-                                            }}
-                                            className={`w-full py-2 rounded-xl text-white font-bold text-[11px] transition ${themeMap.primaryBg} ${themeMap.primaryHover}`}
-                                          >
-                                            حجز موعد معاينة العقار
-                                          </button>
-                                        </div>
-                                      ))}
+                                        );
+                                      })}
                                     </div>
                                   </div>
 
-                                  {/* 3-Step How It Works Strip */}
+                                  {/* User Journeys Strip from Gate 1 PRD */}
                                   <div className={`p-4 rounded-2xl border ${themeMap.cardBg} space-y-3`}>
-                                    <div className="font-black text-xs">كيف يعمل نظام حجز المواعيد العقارية؟</div>
+                                    <div className="font-black text-xs">مسارات ورحلات المستخدم المعتمدة في "{prdSource.projectName}"</div>
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                                      <div className="p-3 rounded-xl bg-slate-500/5 border border-slate-200/50 space-y-1">
-                                        <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${themeMap.lightBg} ${themeMap.lightText}`}>الخطوة 01</span>
-                                        <div className="font-bold">اختر العقار أو نوع الاستشارة</div>
-                                        <p className="text-[11px] opacity-65">تصفح الفلل والشقق والمكاتب مع صور ومواصفات دقيقة.</p>
-                                      </div>
-                                      <div className="p-3 rounded-xl bg-slate-500/5 border border-slate-200/50 space-y-1">
-                                        <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${themeMap.lightBg} ${themeMap.lightText}`}>الخطوة 02</span>
-                                        <div className="font-bold">حدد اليوم والوقت والمستشار</div>
-                                        <p className="text-[11px] opacity-65">جدول زمني حي يعرض الأوقات المتاحة فعلياً دون تضارب.</p>
-                                      </div>
-                                      <div className="p-3 rounded-xl bg-slate-500/5 border border-slate-200/50 space-y-1">
-                                        <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${themeMap.lightBg} ${themeMap.lightText}`}>الخطوة 03</span>
-                                        <div className="font-bold">تأكيد فوري وموقع المعاينة</div>
-                                        <p className="text-[11px] opacity-65">تصلك رسالة تأكيد فورية مع رابط الموقع الجغرافي (GPS).</p>
-                                      </div>
+                                      {prdJourneys.slice(0, 3).map((journey, jIdx) => (
+                                        <div key={jIdx} className="p-3 rounded-xl bg-slate-500/5 border border-slate-200/50 space-y-1">
+                                          <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${themeMap.lightBg} ${themeMap.lightText}`}>
+                                            المسار 0{jIdx + 1} • {prdRoles[jIdx % prdRoles.length]}
+                                          </span>
+                                          <div className="font-bold">{journey}</div>
+                                          <p className="text-[11px] opacity-65">
+                                            القاعدة المنظمة: {prdRules[jIdx % prdRules.length]}
+                                          </p>
+                                        </div>
+                                      ))}
                                     </div>
                                   </div>
                                 </div>
                               )}
 
-                              {/* TAB 1: MAIN DASHBOARD & APPOINTMENTS SCHEDULE */}
+                              {/* TAB 2: MAIN DASHBOARD & LIVE OPERATIONS TABLE (100% DRIVEN BY GATE 1 PRD) */}
                               {stitchScreenTab === 'dashboard' && (
                                 <div className="p-5 space-y-4 flex-1 overflow-y-auto">
                                   {/* 4 KPI Cards inside Stitch Canvas */}
                                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                                     <div className={`p-3.5 rounded-2xl border shadow-2xs ${themeMap.cardBg}`}>
-                                      <span className="text-[10px] opacity-60 block">إجمالي المواعيد النشطة</span>
-                                      <div className="text-lg font-black mt-0.5 tabular-nums">{stitchAppointments.length + 144} موعد</div>
-                                      <span className="text-[10px] text-emerald-500 font-bold">+18% هذا الأسبوع</span>
+                                      <span className="text-[10px] opacity-60 block">إجمالي السجلات والعمليات</span>
+                                      <div className="text-lg font-black mt-0.5 tabular-nums">{allProjectRecords.length} سجل</div>
+                                      <span className="text-[10px] text-emerald-500 font-bold">{prdSource.projectName}</span>
                                     </div>
                                     <div className={`p-3.5 rounded-2xl border shadow-2xs ${themeMap.cardBg}`}>
-                                      <span className="text-[10px] opacity-60 block">معاينات اليوم المؤكدة</span>
+                                      <span className="text-[10px] opacity-60 block">العمليات المعتمدة والنشطة</span>
                                       <div className="text-lg font-black mt-0.5 tabular-nums">
-                                        {stitchAppointments.filter(a => a.status === 'مؤكد').length + 12} معاينة
+                                        {allProjectRecords.filter(a => a.status === 'مؤكد' || a.status === 'مكتمل').length} عملية
                                       </div>
-                                      <span className={`text-[10px] font-bold ${themeMap.lightText}`}>مزامنة مع الوكلاء</span>
+                                      <span className={`text-[10px] font-bold ${themeMap.lightText}`}>{prdFeatures[0]}</span>
                                     </div>
                                     <div className={`p-3.5 rounded-2xl border shadow-2xs ${themeMap.cardBg}`}>
-                                      <span className="text-[10px] opacity-60 block">الوحدات العقارية المتاحة</span>
-                                      <div className="text-lg font-black mt-0.5 tabular-nums">64 عقار</div>
-                                      <span className="text-[10px] opacity-60">فلل • شقق • مكاتب</span>
+                                      <span className="text-[10px] opacity-60 block">كيانات البيانات المهيكلة</span>
+                                      <div className="text-lg font-black mt-0.5 tabular-nums">{prdEntities.length} كيانات</div>
+                                      <span className="text-[10px] opacity-60 truncate block">{prdEntities.slice(0, 2).join(' • ')}</span>
                                     </div>
                                     <div className={`p-3.5 rounded-2xl border shadow-2xs ${themeMap.cardBg}`}>
-                                      <span className="text-[10px] opacity-60 block">معدل حضور العملاء</span>
-                                      <div className="text-lg font-black mt-0.5 tabular-nums">94.2%</div>
-                                      <span className="text-[10px] text-emerald-500 font-bold">تذكير SMS مفعل</span>
+                                      <span className="text-[10px] opacity-60 block">التكاملات وقواعد العمل</span>
+                                      <div className="text-lg font-black mt-0.5 tabular-nums">{prdIntegrations.length} تكامل</div>
+                                      <span className="text-[10px] text-emerald-500 font-bold truncate block">{prdIntegrations[0]}</span>
                                     </div>
                                   </div>
 
-                                  {/* Day Filter Strip */}
-                                  <div className={`p-3 rounded-2xl border flex items-center justify-between gap-2 overflow-x-auto ${themeMap.cardBg}`}>
-                                    <div className="flex items-center gap-1.5 text-[11px]">
-                                      <span className="font-bold opacity-75 ml-1">جدول أيام الأسبوع:</span>
-                                      {['الأحد 18 أكتوبر', 'الإثنين 19 أكتوبر', 'الثلاثاء 20 أكتوبر', 'الأربعاء 21 أكتوبر'].map(day => (
+                                  {/* Filter Bar by User Roles from Gate 1 PRD */}
+                                  <div className={`p-3.5 rounded-2xl border flex flex-wrap items-center justify-between gap-2 text-xs ${themeMap.cardBg}`}>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="font-bold opacity-75 ml-1">تصفية حسب الدور الوظيفي:</span>
+                                      {['الكل', ...prdRoles].map(roleOpt => (
                                         <button
-                                          key={day}
+                                          key={roleOpt}
                                           type="button"
-                                          onClick={() => setStitchSelectedDay(day)}
+                                          onClick={() => setStitchSelectedDay(roleOpt === 'الكل' ? '' : roleOpt)}
                                           className={`px-3 py-1 rounded-xl font-bold transition whitespace-nowrap ${
-                                            stitchSelectedDay === day
+                                            activeRoleFilter === roleOpt
                                               ? `${themeMap.primaryBg} text-white`
                                               : 'bg-slate-100/80 text-slate-600 hover:bg-slate-200/70'
                                           }`}
                                         >
-                                          {day}
+                                          {roleOpt}
                                         </button>
                                       ))}
                                     </div>
-                                    <span className="text-[10px] font-bold opacity-60 shrink-0">{stitchSelectedDay}</span>
+                                    <span className="text-[10px] font-bold opacity-60 shrink-0">
+                                      الدور المعروض: {activeRoleFilter}
+                                    </span>
                                   </div>
 
-                                  {/* Interactive Appointments Table */}
+                                  {/* Interactive Operations & Records Table */}
                                   <div className={`rounded-2xl border overflow-hidden shadow-2xs ${themeMap.cardBg}`}>
                                     <div className="px-4 py-3 border-b border-slate-200/60 flex items-center justify-between">
-                                      <span className="font-bold text-xs">جدول مواعيد المعاينات العقارية ({stitchSelectedDay})</span>
+                                      <span className="font-bold text-xs">
+                                        جدول العمليات والسجلات الحية — {prdSource.projectName} ({filteredProjectRecords.length})
+                                      </span>
                                       <button
                                         type="button"
                                         onClick={() => setStitchScreenTab('booking')}
                                         className={`text-[11px] font-bold ${themeMap.lightText} hover:underline`}
                                       >
-                                        + إضافة حجز للجدول
+                                        + إضافة سجل / عملية جديدة
                                       </button>
                                     </div>
                                     <div className="divide-y divide-slate-200/50 text-xs">
-                                      {stitchAppointments.map((apt) => (
-                                        <div key={apt.id} className="px-4 py-3 flex items-center justify-between gap-2 hover:bg-slate-500/5 transition">
+                                      {filteredProjectRecords.map((rec) => (
+                                        <div key={rec.id} className="px-4 py-3 flex items-center justify-between gap-2 hover:bg-slate-500/5 transition">
                                           <div className="space-y-0.5">
                                             <div className="font-bold flex items-center gap-2">
-                                              <span>{apt.client}</span>
-                                              <span className="text-[10px] font-mono opacity-50">{apt.id}</span>
+                                              <span>{rec.property}</span>
+                                              <span className="text-[10px] font-mono opacity-50">{rec.id}</span>
                                             </div>
-                                            <div className="text-[11px] opacity-70">{apt.property} · المستشار: {apt.agent}</div>
+                                            <div className="text-[11px] opacity-70">
+                                              البيانات: {rec.client} · المسؤول: {rec.agent}
+                                            </div>
                                           </div>
                                           <div className="flex items-center gap-2 shrink-0">
                                             <span className="font-mono text-[11px] font-bold px-2.5 py-1 rounded-lg bg-slate-500/10">
-                                              {apt.time}
+                                              {rec.time}
                                             </span>
                                             <button
                                               type="button"
                                               onClick={() => {
-                                                setStitchAppointments(prev =>
-                                                  prev.map(item =>
-                                                    item.id === apt.id
-                                                      ? { ...item, status: item.status === 'مؤكد' ? 'مكتمل' : 'مؤكد' }
-                                                      : item
-                                                  )
-                                                );
-                                                showToast(`تم تحديث حالة موعد ${apt.client}`);
+                                                const existsInCustom = stitchAppointments.some(item => item.id === rec.id);
+                                                if (existsInCustom) {
+                                                  setStitchAppointments(prev =>
+                                                    prev.map(item =>
+                                                      item.id === rec.id
+                                                        ? { ...item, status: item.status === 'مؤكد' ? 'مكتمل' : 'مؤكد' }
+                                                        : item
+                                                    )
+                                                  );
+                                                } else {
+                                                  setStitchAppointments(prev => [
+                                                    { ...rec, id: `${rec.id}-UPD`, status: rec.status === 'مؤكد' ? 'مكتمل' : 'مؤكد' },
+                                                    ...prev,
+                                                  ]);
+                                                }
+                                                showToast(`تم تحديث حالة العملية "${rec.property}" في ${prdSource.projectName}`);
                                               }}
                                               className={`px-2.5 py-1 rounded-full text-[10px] font-bold cursor-pointer ${
-                                                apt.status === 'مؤكد'
+                                                rec.status === 'مؤكد'
                                                   ? 'bg-emerald-100 text-emerald-800'
-                                                  : apt.status === 'مكتمل'
+                                                  : rec.status === 'مكتمل'
                                                   ? 'bg-blue-100 text-blue-800'
                                                   : 'bg-amber-100 text-amber-800'
                                               }`}
                                             >
-                                              ● {apt.status}
+                                              ● {rec.status}
                                             </button>
                                           </div>
                                         </div>
@@ -6272,65 +6344,72 @@ export default function App() {
                                 </div>
                               )}
 
-                              {/* TAB 2: INTERACTIVE BOOKING FORM SCREEN */}
+                              {/* TAB 3: INTERACTIVE OPERATION / RECORD FORM SCREEN (100% DRIVEN BY GATE 1 PRD) */}
                               {stitchScreenTab === 'booking' && (
                                 <div className="p-5 space-y-4 flex-1 overflow-y-auto">
                                   <div className={`p-5 rounded-2xl border space-y-4 ${themeMap.cardBg}`}>
                                     <div className="flex items-center justify-between border-b border-slate-200/60 pb-3">
                                       <div>
-                                        <h4 className="font-black text-sm">حجز موعد معاينة عقارية جديدة</h4>
-                                        <p className="text-[11px] opacity-60">اختر العقار والوقت المناسب ليتم إضافته فوراً إلى جدول المواعيد الحي</p>
+                                        <h4 className="font-black text-sm">
+                                          إضافة وتنفيذ عملية جديدة — {prdSource.projectName}
+                                        </h4>
+                                        <p className="text-[11px] opacity-60">
+                                          نموذج إدخال تفاعلي مبني على متطلبات البيانات ({prdEntities.join(' • ')})
+                                        </p>
                                       </div>
                                       <button
                                         type="button"
                                         onClick={() => setStitchScreenTab('dashboard')}
                                         className="text-xs font-bold opacity-60 hover:opacity-100"
                                       >
-                                        العودة للجدول ←
+                                        العودة للوحة العمليات ←
                                       </button>
                                     </div>
 
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                                       <div>
-                                        <label className="block font-bold mb-1">اسم العميل الكامل</label>
+                                        <label className="block font-bold mb-1">
+                                          بيان السجل / {prdEntities[0] || 'العملية'}
+                                        </label>
                                         <input
                                           type="text"
                                           value={stitchBookingClient}
                                           onChange={e => setStitchBookingClient(e.target.value)}
-                                          placeholder="مثال: م. سامي عبد الرحمن"
+                                          placeholder={`أدخل تفاصيل ${prdEntities[0] || 'السجل'} في ${prdSource.projectName}...`}
                                           className="w-full h-10 px-3 rounded-xl bg-slate-500/5 border border-slate-300/60 text-xs focus:outline-none"
                                         />
                                       </div>
                                       <div>
-                                        <label className="block font-bold mb-1">العقار / نوع الموعد</label>
+                                        <label className="block font-bold mb-1">الوحدة / الميزة المستهدفة</label>
                                         <select
-                                          value={stitchBookingService}
+                                          value={stitchBookingService || prdFeatures[0]}
                                           onChange={e => setStitchBookingService(e.target.value)}
                                           className="w-full h-10 px-3 rounded-xl bg-slate-500/5 border border-slate-300/60 text-xs font-semibold focus:outline-none"
                                         >
-                                          <option value="معاينة فيلا سكنية - دابوق">معاينة فيلا سكنية - دابوق</option>
-                                          <option value="معاينة شقة طابقية - عبدون">معاينة شقة طابقية - عبدون</option>
-                                          <option value="مكتب تجاري ذكي - البوليفارد">مكتب تجاري ذكي - البوليفارد</option>
-                                          <option value="استشارة استثمار وتمويل عقاري">استشارة استثمار وتمويل عقاري</option>
+                                          {prdFeatures.map((feat, idx) => (
+                                            <option key={idx} value={feat}>
+                                              {feat}
+                                            </option>
+                                          ))}
                                         </select>
                                       </div>
                                     </div>
 
                                     <div className="text-xs space-y-1.5">
-                                      <label className="block font-bold">اختر الفترة الزمنية المتاحة ({stitchSelectedDay})</label>
-                                      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                                        {['09:30 صباحاً', '11:00 صباحاً', '01:00 ظهراً', '03:30 مساءً', '05:00 مساءً'].map(slot => (
+                                      <label className="block font-bold">اختر كيان البيانات المرتبط والدور المسؤول</label>
+                                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                        {prdEntities.map((ent, idx) => (
                                           <button
-                                            key={slot}
+                                            key={idx}
                                             type="button"
-                                            onClick={() => setStitchSelectedSlot(slot)}
+                                            onClick={() => setStitchSelectedSlot(ent)}
                                             className={`py-2 px-2 rounded-xl font-bold text-[11px] border transition ${
-                                              stitchSelectedSlot === slot
+                                              selectedEntity === ent
                                                 ? `${themeMap.primaryBg} text-white border-transparent shadow-xs`
                                                 : 'border-slate-300/60 hover:border-orange-400'
                                             }`}
                                           >
-                                            {slot}
+                                            {ent}
                                           </button>
                                         ))}
                                       </div>
@@ -6340,61 +6419,65 @@ export default function App() {
                                       <button
                                         type="button"
                                         onClick={() => {
+                                          const chosenFeature = stitchBookingService || prdFeatures[0];
                                           const newEntry = {
-                                            id: `APT-${Math.floor(105 + Math.random() * 90)}`,
-                                            client: stitchBookingClient.trim() || 'عميل جديد (معاينة فورية)',
-                                            property: stitchBookingService,
-                                            time: stitchSelectedSlot,
-                                            agent: 'أ. سامر الحسن',
+                                            id: `REC-${Math.floor(200 + Math.random() * 700)}`,
+                                            client: stitchBookingClient.trim() || `${selectedEntity} (${prdSource.projectName})`,
+                                            property: chosenFeature,
+                                            time: prdIntegrations[0] || 'تم الحفظ آنياً',
+                                            agent: selectedRole,
                                             status: 'مؤكد' as const,
                                           };
                                           setStitchAppointments(prev => [newEntry, ...prev]);
                                           setStitchBookingClient('');
                                           setStitchScreenTab('dashboard');
-                                          showToast(`تم تأكيد حجز الموعد (${newEntry.time}) وإضافته للوحة المواعيد الحية!`);
+                                          showToast(`تم حفظ "${newEntry.property}" وإضافته لجدول عمليات ${prdSource.projectName}!`);
                                         }}
                                         className={`px-6 py-2.5 rounded-xl text-white text-xs font-bold shadow-md transition ${themeMap.primaryBg} ${themeMap.primaryHover}`}
                                       >
-                                        تأكيد الحجز وإضافته للجدول الحي
+                                        حفظ وإضافة لجدول عمليات {prdSource.projectName}
                                       </button>
                                     </div>
                                   </div>
                                 </div>
                               )}
 
-                              {/* TAB 3: CUSTOMER PORTAL & PROPERTY SHOWCASE CARDS */}
+                              {/* TAB 4: MODULES, DATA ENTITIES & INTEGRATIONS PORTAL (100% DRIVEN BY GATE 1 PRD) */}
                               {stitchScreenTab === 'portal' && (
                                 <div className="p-5 space-y-4 flex-1 overflow-y-auto">
                                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                                    {[
-                                      { title: 'فيلا الياسمين الذكية - دابوق', area: '620 م² • 5 غرف ماستر', price: '480,000 د.أ', slots: '3 مواعيد متاحة اليوم', tag: 'حصري VIP' },
-                                      { title: 'شقة بانوراما - عبدون الشمالي', area: '245 م² • ترس مطل', price: '195,000 د.أ', slots: '5 مواعيد متاحة اليوم', tag: 'الأكثر طلباً' },
-                                      { title: 'مكاتب أبراج العبدلي التجارية', area: '310 م² • تجهيز كامل', price: '260,000 د.أ', slots: 'موعدان متاحان اليوم', tag: 'استثماري' },
-                                    ].map((prop, idx) => (
-                                      <div key={idx} className={`p-4 rounded-2xl border flex flex-col justify-between space-y-3 shadow-2xs ${themeMap.cardBg}`}>
-                                        <div className="space-y-1.5">
-                                          <div className="flex items-center justify-between">
-                                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${themeMap.lightBg} ${themeMap.lightText}`}>
-                                              {prop.tag}
-                                            </span>
-                                            <span className="font-black text-xs">{prop.price}</span>
+                                    {prdFeatures.map((feat, idx) => {
+                                      const entityName = prdEntities[idx % prdEntities.length];
+                                      const roleName = prdRoles[idx % prdRoles.length];
+                                      const ruleText = prdRules[idx % prdRules.length];
+                                      return (
+                                        <div key={idx} className={`p-4 rounded-2xl border flex flex-col justify-between space-y-3 shadow-2xs ${themeMap.cardBg}`}>
+                                          <div className="space-y-1.5">
+                                            <div className="flex items-center justify-between">
+                                              <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${themeMap.lightBg} ${themeMap.lightText}`}>
+                                                {roleName}
+                                              </span>
+                                              <span className="font-black text-[11px]">{entityName}</span>
+                                            </div>
+                                            <h5 className="font-bold text-xs">{feat}</h5>
+                                            <p className="text-[11px] opacity-65">{ruleText}</p>
+                                            <div className="text-[10px] text-emerald-500 font-bold">
+                                              ● متكامل مع: {prdIntegrations[idx % prdIntegrations.length]}
+                                            </div>
                                           </div>
-                                          <h5 className="font-bold text-xs">{prop.title}</h5>
-                                          <p className="text-[11px] opacity-65">{prop.area}</p>
-                                          <div className="text-[10px] text-emerald-500 font-bold">● {prop.slots}</div>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setStitchBookingService(feat);
+                                              setStitchScreenTab('booking');
+                                            }}
+                                            className={`w-full py-2 rounded-xl text-white font-bold text-[11px] transition ${themeMap.primaryBg} ${themeMap.primaryHover}`}
+                                          >
+                                            تنفيذ عملية في {feat}
+                                          </button>
                                         </div>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setStitchBookingService(prop.title);
-                                            setStitchScreenTab('booking');
-                                          }}
-                                          className={`w-full py-2 rounded-xl text-white font-bold text-[11px] transition ${themeMap.primaryBg} ${themeMap.primaryHover}`}
-                                        >
-                                          احجز موعد معاينة للعقار
-                                        </button>
-                                      </div>
-                                    ))}
+                                      );
+                                    })}
                                   </div>
                                 </div>
                               )}
@@ -6421,107 +6504,48 @@ export default function App() {
                                       </button>
                                     </div>
 
-                                    {cp.pageKind === 'auth' && (
-                                      <div className={`max-w-md mx-auto p-6 rounded-3xl border shadow-sm space-y-4 ${themeMap.cardBg}`}>
-                                        <div className="text-center space-y-1">
-                                          <div className={`w-11 h-11 rounded-2xl mx-auto flex items-center justify-center text-white font-black ${themeMap.primaryBg}`}>
-                                            عقار
-                                          </div>
-                                          <h5 className="font-black text-sm mt-2">تسجيل الدخول إلى بوابة المكتب العقاري</h5>
-                                          <p className="text-[11px] opacity-60">أدخل بياناتك لإدارة حجوزات ومعاينات العقارات</p>
+                                    <div className="space-y-4 text-xs">
+                                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                        <div className={`p-4 rounded-2xl border space-y-1.5 ${themeMap.cardBg}`}>
+                                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${themeMap.lightBg} ${themeMap.lightText}`}>القسم الرئيسي 01</span>
+                                          <div className="font-bold text-xs">واجهة {cp.title}</div>
+                                          <p className="text-[11px] opacity-65">مكون تفاعلي مصمم خصيصاً لـ {prdSource.projectName} مع دعم كامل للعربية.</p>
                                         </div>
-                                        <div className="space-y-3 text-xs">
-                                          <div>
-                                            <label className="block font-bold mb-1">البريد الإلكتروني أو رقم الجوال</label>
-                                            <input type="text" placeholder="client@realestate.jo" className="w-full h-10 px-3 rounded-xl border border-slate-300/70 bg-transparent" />
-                                          </div>
-                                          <div>
-                                            <label className="block font-bold mb-1">كلمة المرور</label>
-                                            <input type="password" value="••••••••" readOnly className="w-full h-10 px-3 rounded-xl border border-slate-300/70 bg-transparent" />
-                                          </div>
+                                        <div className={`p-4 rounded-2xl border space-y-1.5 ${themeMap.cardBg}`}>
+                                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${themeMap.lightBg} ${themeMap.lightText}`}>القسم التفاعلي 02</span>
+                                          <div className="font-bold text-xs">إدارة البيانات والإجراءات السريعة</div>
+                                          <p className="text-[11px] opacity-65">مرتبط ببيانات ({prdEntities.join('، ')}) في {prdSource.projectName}.</p>
+                                        </div>
+                                        <div className={`p-4 rounded-2xl border space-y-1.5 ${themeMap.cardBg}`}>
+                                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${themeMap.lightBg} ${themeMap.lightText}`}>القسم التحليلي 03</span>
+                                          <div className="font-bold text-xs">ملخص مخرجات Google Stitch</div>
+                                          <p className="text-[11px] opacity-65 line-clamp-2">{cp.aiSummary}</p>
+                                        </div>
+                                      </div>
+
+                                      <div className={`p-5 rounded-2xl border space-y-3 ${themeMap.cardBg}`}>
+                                        <div className="font-bold text-xs">نموذج التفاعل السريع في {cp.title}</div>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                          <input type="text" placeholder="البيان أو العنوان..." className="h-10 px-3 rounded-xl border border-slate-300/60 bg-transparent text-xs" />
+                                          <input type="text" placeholder="التفاصيل أو الملاحظات..." className="h-10 px-3 rounded-xl border border-slate-300/60 bg-transparent text-xs" />
                                           <button
                                             type="button"
-                                            onClick={() => {
-                                              showToast('تم تسجيل الدخول بنجاح في المعاينة التفاعلية!');
-                                              setStitchScreenTab('dashboard');
-                                            }}
-                                            className={`w-full py-2.5 rounded-xl text-white font-bold ${themeMap.primaryBg}`}
+                                            onClick={() => showToast(`تم حفظ البيانات في ${cp.title} بنجاح!`)}
+                                            className={`h-10 rounded-xl text-white font-bold ${themeMap.primaryBg}`}
                                           >
-                                            دخول إلى المنصة
+                                            حفظ وتنفيذ الإجراء
                                           </button>
                                         </div>
                                       </div>
-                                    )}
-
-                                    {cp.pageKind === 'pricing' && (
-                                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                                        {[
-                                          { name: 'باقة المعاينة الأساسية', price: 'مجاناً', desc: 'حجز مواعيد معاينة حتى 3 عقارات أسبوعياً', btn: 'الباقة الحالية' },
-                                          { name: 'باقة المستثمر العقاري VIP', price: '150 د.أ / شهر', desc: 'جولات ميدانية خاصة + مستشار مالي وعقاري مخصص', btn: 'اشترك الآن' },
-                                          { name: 'باقة الشركات والمطورين', price: '450 د.أ / شهر', desc: 'إدارة مفتوحة لجميع المشاريع والوكلاء وتقارير متقدمة', btn: 'تواصل للمؤسسات' },
-                                        ].map((plan, i) => (
-                                          <div key={i} className={`p-5 rounded-2xl border flex flex-col justify-between space-y-4 ${themeMap.cardBg}`}>
-                                            <div className="space-y-2">
-                                              <div className="font-bold text-xs">{plan.name}</div>
-                                              <div className="text-lg font-black text-amber-600">{plan.price}</div>
-                                              <p className="text-[11px] opacity-70">{plan.desc}</p>
-                                            </div>
-                                            <button
-                                              type="button"
-                                              onClick={() => showToast(`تم اختيار ${plan.name}`)}
-                                              className={`w-full py-2 rounded-xl text-white font-bold ${themeMap.primaryBg}`}
-                                            >
-                                              {plan.btn}
-                                            </button>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-
-                                    {cp.pageKind !== 'auth' && cp.pageKind !== 'pricing' && (
-                                      <div className="space-y-4 text-xs">
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                          <div className={`p-4 rounded-2xl border space-y-1.5 ${themeMap.cardBg}`}>
-                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${themeMap.lightBg} ${themeMap.lightText}`}>القسم الرئيسي 01</span>
-                                            <div className="font-bold text-xs">واجهة {cp.title}</div>
-                                            <p className="text-[11px] opacity-65">مكون تفاعلي مصمم خصيصاً لـ {activeProject.name} مع دعم كامل للعربية.</p>
-                                          </div>
-                                          <div className={`p-4 rounded-2xl border space-y-1.5 ${themeMap.cardBg}`}>
-                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${themeMap.lightBg} ${themeMap.lightText}`}>القسم التفاعلي 02</span>
-                                            <div className="font-bold text-xs">إدارة البيانات والإجراءات السريعة</div>
-                                            <p className="text-[11px] opacity-65">مرتبط مباشرة بقاعدة بيانات المواعيد والعقارات والعملاء.</p>
-                                          </div>
-                                          <div className={`p-4 rounded-2xl border space-y-1.5 ${themeMap.cardBg}`}>
-                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${themeMap.lightBg} ${themeMap.lightText}`}>القسم التحليلي 03</span>
-                                            <div className="font-bold text-xs">ملخص مخرجات Google Stitch</div>
-                                            <p className="text-[11px] opacity-65 line-clamp-2">{cp.aiSummary}</p>
-                                          </div>
-                                        </div>
-
-                                        <div className={`p-5 rounded-2xl border space-y-3 ${themeMap.cardBg}`}>
-                                          <div className="font-bold text-xs">نموذج التفاعل السريع في {cp.title}</div>
-                                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                            <input type="text" placeholder="الاسم أو العنوان..." className="h-10 px-3 rounded-xl border border-slate-300/60 bg-transparent text-xs" />
-                                            <input type="text" placeholder="التفاصيل أو الملاحظات..." className="h-10 px-3 rounded-xl border border-slate-300/60 bg-transparent text-xs" />
-                                            <button
-                                              type="button"
-                                              onClick={() => showToast(`تم حفظ البيانات في ${cp.title} بنجاح!`)}
-                                              className={`h-10 rounded-xl text-white font-bold ${themeMap.primaryBg}`}
-                                            >
-                                              حفظ وتنفيذ الإجراء
-                                            </button>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    )}
+                                    </div>
                                   </div>
                                 ))}
 
-                              {/* TAB 4: STITCH GENERATED TAILWIND / REACT CODE */}
+                              {/* TAB 5: STITCH GENERATED TAILWIND / REACT CODE (100% DRIVEN BY GATE 1 PRD) */}
                               {stitchScreenTab === 'code' && (
                                 <div className="p-4 bg-slate-950 text-emerald-400 font-mono text-[11px] flex-1 overflow-auto" dir="ltr">
                                   <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800 text-slate-400">
-                                    <span>// Google Stitch Generated UI Component (Tailwind CSS RTL)</span>
+                                    <span>// Google Stitch Generated UI Component (Tailwind CSS RTL) — {prdSource.projectName}</span>
                                     <button
                                       type="button"
                                       onClick={() => showToast('تم نسخ كود واجهة Google Stitch إلى الحافظة')}
@@ -6530,16 +6554,32 @@ export default function App() {
                                       نسخ الكود
                                     </button>
                                   </div>
-                                  <pre>{`export default function RealEstateBookingStitchUI() {
+                                  <pre>{gate2Design?.uiFiles?.[0]?.content || `export default function StitchGeneratedWorkspace() {
+  const projectName = ${JSON.stringify(prdSource.projectName)};
+  const overview = ${JSON.stringify(prdSource.overview)};
+  const features = ${JSON.stringify(prdFeatures, null, 2)};
+  const roles = ${JSON.stringify(prdRoles, null, 2)};
+  const dataEntities = ${JSON.stringify(prdEntities, null, 2)};
+
   return (
     <div dir="rtl" className="min-h-screen bg-slate-50 text-slate-900 p-6 space-y-6">
-      <header className="bg-white p-4 rounded-2xl border flex items-center justify-between">
-        <h1 className="text-lg font-black">${activeProject.name}</h1>
+      <header className="bg-white p-5 rounded-2xl border flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-black">{projectName}</h1>
+          <p className="text-xs text-slate-500">{overview}</p>
+        </div>
         <button className="px-4 py-2 rounded-xl bg-orange-600 text-white font-bold">
-          + حجز موعد معاينة جديد
+          + إضافة {dataEntities[0]}
         </button>
       </header>
-      {/* Landing Page + Live Appointments Schedule + Custom Stitch Pages */}
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {features.map((feat, i) => (
+          <div key={i} className="p-4 bg-white rounded-2xl border shadow-2xs">
+            <div className="font-bold text-sm">{feat}</div>
+            <div className="text-xs text-slate-500 mt-1">الدور: {roles[i % roles.length]}</div>
+          </div>
+        ))}
+      </section>
     </div>
   );
 }`}</pre>

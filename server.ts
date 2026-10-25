@@ -4,7 +4,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
-import { FactoryStorage, UserRecord, maskApiKey } from './src/server/storage.ts';
+import {
+  FactoryStorage,
+  UserRecord,
+  maskApiKey,
+  encryptCredential,
+  decryptCredential,
+} from './src/server/storage.ts';
 import {
   executeRequirementsAgent,
   ProviderHttpClient,
@@ -504,8 +510,30 @@ function loadPersistedConfig(storage: FactoryStorage): { providers: ProviderConf
         (Array.isArray(raw.providers) && raw.providers.length > 0) ||
         (Array.isArray(raw.agents) && raw.agents.length > 0)
       ) {
-        const rawProviders = normalizeProviders(raw.providers, DEFAULT_PROVIDERS, { allowRepairOnBoot: true });
-        const rawAgents = normalizeAgents(raw.agents, rawProviders);
+        const decryptedProvs = (Array.isArray(raw.providers) ? raw.providers : []).map((p: any) => {
+          if (!p || typeof p !== 'object') return p;
+          const decryptedKey =
+            typeof p.encryptedApiKey === 'string' && p.encryptedApiKey.trim()
+              ? decryptCredential(p.encryptedApiKey)
+              : typeof p.apiKey === 'string'
+              ? p.apiKey
+              : '';
+          const { encryptedApiKey, ...rest } = p;
+          return { ...rest, apiKey: decryptedKey };
+        });
+        const decryptedAgents = (Array.isArray(raw.agents) ? raw.agents : []).map((a: any) => {
+          if (!a || typeof a !== 'object') return a;
+          const decryptedKey =
+            typeof a.encryptedApiKey === 'string' && a.encryptedApiKey.trim()
+              ? decryptCredential(a.encryptedApiKey)
+              : typeof a.apiKey === 'string'
+              ? a.apiKey
+              : '';
+          const { encryptedApiKey, ...rest } = a;
+          return { ...rest, apiKey: decryptedKey };
+        });
+        const rawProviders = normalizeProviders(decryptedProvs, DEFAULT_PROVIDERS, { allowRepairOnBoot: true });
+        const rawAgents = normalizeAgents(decryptedAgents, rawProviders);
         const upgraded = upgradeStitchDesignerConfig(rawProviders, rawAgents);
         storage.saveAdminConfig(upgraded.providers, upgraded.agents);
         return { providers: upgraded.providers, agents: upgraded.agents };
@@ -526,11 +554,19 @@ function savePersistedConfig(
   storage.saveAdminConfig(providers, agents);
   if (!isolateConfig) {
     try {
-      const sanitizedProviders = providers.map((p) => ({ ...p, apiKey: '' }));
-      const sanitizedAgents = agents.map((a) => ({ ...a, apiKey: '' }));
+      const encryptedProviders = providers.map((p) => ({
+        ...p,
+        apiKey: '',
+        encryptedApiKey: p.apiKey && p.apiKey.trim() ? encryptCredential(p.apiKey.trim()) : '',
+      }));
+      const encryptedAgents = agents.map((a) => ({
+        ...a,
+        apiKey: '',
+        encryptedApiKey: a.apiKey && a.apiKey.trim() ? encryptCredential(a.apiKey.trim()) : '',
+      }));
       fs.writeFileSync(
         CONFIG_FILE_PATH,
-        JSON.stringify({ providers: sanitizedProviders, agents: sanitizedAgents }, null, 2),
+        JSON.stringify({ providers: encryptedProviders, agents: encryptedAgents }, null, 2),
         'utf-8'
       );
     } catch (err) {
