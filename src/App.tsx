@@ -3231,7 +3231,7 @@ export default function App() {
                                             prev.map(p => (p.id === activeProject.id ? { ...p, currentGate: 2 } : p))
                                           );
                                         }
-                                        setActiveScreen('gate-workspace');
+                                        setActiveScreen('gate-2');
                                         showToast('تم الانتقال إلى مساحة عمل البوابة الثانية ولوحة Stitch Canvas التفاعلية');
                                       }}
                                       className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-bold transition flex items-center gap-1.5"
