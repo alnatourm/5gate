@@ -36,7 +36,9 @@ export function normalizeStitchModelId(rawModel?: string): StitchMcpModelId {
  * `StreamableHTTPClientTransport` (used for deterministic MCP protocol verification
  * in automated tests while using native `fetch` in live environments).
  */
-export class ConfigurableStitchToolClient extends StitchToolClient {
+const StitchToolClientBase: any = StitchToolClient;
+
+export class ConfigurableStitchToolClient extends StitchToolClientBase {
   private readonly customFetch?: ProviderHttpClient;
   private readonly explicitEndpoint: string;
   private readonly explicitApiKey: string;
@@ -58,7 +60,7 @@ export class ConfigurableStitchToolClient extends StitchToolClient {
     this.explicitApiKey = options.apiKey;
   }
 
-  override async doConnect(): Promise<void> {
+  async doConnect(): Promise<void> {
     const anySelf = this as any;
     const transportOpts: Record<string, any> = {
       requestInit: {
