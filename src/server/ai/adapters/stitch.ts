@@ -851,7 +851,7 @@ export class StitchAdapter implements ProviderAdapter {
       // Step 2B: Gate 2 Real Stitch Project & Screen Generation / Revision via Official SDK
       const { approvedPrd, currentDesign, instructions } = this.extractInputsFromPrompt(promptText);
       const brief = buildStitchDesignBriefFromPrd(approvedPrd, currentDesign, instructions);
-      const sdk = new Stitch(client);
+      const sdk = new Stitch(client as unknown as StitchToolClient);
 
       const existingRemoteProjectId =
         (typeof currentDesign?.stitchMetadata?.remoteProjectId === 'string' &&
