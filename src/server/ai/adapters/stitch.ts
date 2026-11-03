@@ -58,18 +58,14 @@ export class ConfigurableStitchToolClient extends StitchToolClient {
     this.explicitApiKey = options.apiKey;
   }
 
-  override buildAuthHeaders(): Record<string, string> {
-    return {
-      Accept: 'application/json, text/event-stream',
-      'X-Goog-Api-Key': this.explicitApiKey,
-    };
-  }
-
   override async doConnect(): Promise<void> {
     const anySelf = this as any;
     const transportOpts: Record<string, any> = {
       requestInit: {
-        headers: this.buildAuthHeaders(),
+        headers: {
+          Accept: 'application/json, text/event-stream',
+          'X-Goog-Api-Key': this.explicitApiKey,
+        },
       },
       reconnectionOptions: {
         initialReconnectionDelay: 500,
