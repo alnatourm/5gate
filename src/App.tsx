@@ -1999,7 +1999,7 @@ export default function App() {
           )
         );
 
-        showToast(`تم اعتماد وقفل وثيقة المتطلبات (v${approval.approvedVersion}) والانتقال إلى البوابة 2 بنجاح!`);
+        showToast(`تم اعتماد وقفل وثيقة المتطلبات (v${approval.approvedVersion}) بنجاح.`);
 
         // Gate 1 is complete. Do not execute Gate 2 from this handler.
         // Gate 2 generation belongs exclusively to the Gate 2 workspace and its own controls.
