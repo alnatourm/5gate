@@ -1999,12 +1999,11 @@ export default function App() {
           )
         );
 
-        showToast(`تم اعتماد وقفل وثيقة المتطلبات (v${approval.approvedVersion}) بنجاح.`);
-
-        // Gate 1 is complete. Do not execute Gate 2 from this handler.
-        // Gate 2 generation belongs exclusively to the Gate 2 workspace and its own controls.
+        // Approval is the only action that moves the user to the next gate page.
         setGate1ErrorBanner(null);
-        showToast('تم اعتماد المتطلبات وقفلها. انتقل الآن إلى البوابة الثانية لبدء التصميم.');
+        setCurrentView('gate-workspace');
+        setActiveScreen('gate-2');
+        showToast('تم اعتماد المتطلبات. انتقلت الآن إلى صفحة التصميم.');
         return;
       }
 
@@ -2042,9 +2041,14 @@ export default function App() {
       }
 
       if (currentG < 5) {
-        showToast(`تم اعتماد وقفل مخرجات البوابة ${currentG} والانتقال إلى البوابة ${currentG + 1} بنجاح!`);
+        // Each approval advances the workspace to the next gate page.
+        setCurrentView('gate-workspace');
+        setActiveScreen(`gate-${currentG + 1}`);
+        showToast(`تم اعتماد البوابة ${currentG}. انتقلت الآن إلى صفحة البوابة ${currentG + 1}.`);
       } else {
         showToast('تم اعتماد البوابة الخامسة وتسليم المشروع نهائياً بنجاح!');
+        setActiveScreen('dashboard');
+        setCurrentView('dashboard');
       }
     } catch (err: any) {
       setGate1ErrorBanner(err.message || `فشل اعتماد البوابة ${currentG}`);
