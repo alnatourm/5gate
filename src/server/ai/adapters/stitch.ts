@@ -957,7 +957,7 @@ export class StitchAdapter implements ProviderAdapter {
       }
 
       const isRevisionOnExistingProject =
-        Boolean(existingRemoteProjectId) &&
+        Boolean(existingRemoteProjectId || recoveredByTitle) &&
         existingScreens.length > 0 &&
         Boolean(instructions) &&
         !instructions.includes('قم بتوليد وتحديث تصميم الواجهات التفاعلية والشاشات للمشروع.');
