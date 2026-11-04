@@ -2967,6 +2967,11 @@ export default function App() {
                                         : a
                                     );
                                     setFactoryAgents(updated);
+                                    syncSystemConfigToBackend(
+                                      factoryProviders,
+                                      updated,
+                                      `تم حفظ وربط ${agent.gateCode} مع مزود (${selProv.name}) بالخادم فوراً!`
+                                    );
                                   }}
                                   className="w-full h-10 px-3 rounded-xl bg-slate-50 border border-slate-200 font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500"
                                 >
