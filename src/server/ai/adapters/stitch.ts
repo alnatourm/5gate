@@ -969,10 +969,14 @@ export class StitchAdapter implements ProviderAdapter {
 
       const generatedScreenInventory: any[] = [];
       const affectedScreenIds: string[] = [];
-      let operationType: 'create_project_and_screens' | 'edit_screens' | 'generate_screen_from_text' =
+      let operationType: 'create_project_and_screens' | 'edit_screens' | 'generate_screen_from_text' | 'recover_existing_project' =
         'create_project_and_screens';
 
-      if (isRevisionOnExistingProject && addScreenMatch?.[1]) {
+      if (recoveredByTitle && existingScreens.length > 0 && !isRevisionOnExistingProject) {
+        operationType = 'recover_existing_project';
+        generatedScreenInventory.push(...existingScreens);
+        affectedScreenIds.push(...existingScreens.map((screen: any) => screen.remoteScreenId));
+      } else if (isRevisionOnExistingProject && addScreenMatch?.[1]) {
         // Customer requested adding a new screen to the existing Stitch project
         operationType = 'generate_screen_from_text';
         const customScreenTitle = addScreenMatch[1].trim().slice(0, 80);
