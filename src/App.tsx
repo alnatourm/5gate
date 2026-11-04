@@ -2001,50 +2001,10 @@ export default function App() {
 
         showToast(`تم اعتماد وقفل وثيقة المتطلبات (v${approval.approvedVersion}) والانتقال إلى البوابة 2 بنجاح!`);
 
-        // Check if Stitch provider has a configured API key before automatically attempting remote MCP generation
-        const stitchProv = factoryProviders.find(p => p.id === 'prov-stitch' || p.providerType === 'stitch');
-        const stitchHasKey = Boolean(stitchProv?.hasKey || (stitchProv?.apiKey && stitchProv.apiKey.trim()));
-
-        if (!stitchHasKey) {
-          setGate1ErrorBanner(null);
-          showToast('انتقلت إلى البوابة 2 بنجاح! أدخل مفتاح Google Stitch للبدء في توليد الشاشات عبر Stitch MCP.');
-          return;
-        }
-
-        // Trigger remote Google Stitch project & screen generation from the newly approved Gate 1 PRD when entering Gate 2
-        try {
-          setIsAiProcessing(true);
-          const g2Res = await fetch(`/api/projects/${activeProject.id}/gates/2/generate`, {
-            method: 'POST',
-            headers: authHeaders(),
-            body: JSON.stringify({
-              prompt: `قم بتوليد وتحديث تصميم الواجهات التفاعلية والشاشات لمشروع "${approval.document.projectName}" (${approval.document.overview}) عبر خدمة Google Stitch MCP استناداً إلى وثيقة المتطلبات المعتمدة.`,
-            }),
-          });
-          const g2Parsed = await safeReadJsonResponse(g2Res, 'تعذر إتمام عملية Google Stitch MCP عن بُعد.');
-          if (g2Parsed.ok && g2Parsed.data?.artifact) {
-            const design = g2Parsed.data.artifact as DesignArtifact;
-            setGate2Design(design);
-            setGate2Version(g2Parsed.data.version);
-            setGate2Locked(false);
-            if (design.screens?.length > 0) {
-              const firstScreenId = design.screens[0].id;
-              setGate2ActiveScreenId(firstScreenId);
-              setStitchScreenTab(`stitch-screen:${firstScreenId}`);
-            }
-            showToast(`تم توليد شاشات التصميم بنجاح عبر Google Stitch MCP (${design.screens.length} شاشات)!`);
-          } else if (!g2Parsed.ok) {
-            setGate1ErrorBanner(
-              g2Parsed.error || 'تعذر توليد شاشات التصميم عبر خدمة Google Stitch MCP. يرجى التحقق من مفتاح Stitch API والمحاولة مجدداً.'
-            );
-          }
-        } catch (err: any) {
-          setGate1ErrorBanner(
-            err?.message || 'تعذر الاتصال بخدمة Google Stitch MCP لتوليد شاشات التصميم.'
-          );
-        } finally {
-          setIsAiProcessing(false);
-        }
+        // Gate 1 is complete. Do not execute Gate 2 from this handler.
+        // Gate 2 generation belongs exclusively to the Gate 2 workspace and its own controls.
+        setGate1ErrorBanner(null);
+        showToast('تم اعتماد المتطلبات وقفلها. انتقل الآن إلى البوابة الثانية لبدء التصميم.');
         return;
       }
 
