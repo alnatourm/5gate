@@ -1,4 +1,4 @@
-import { RequirementsDocument } from './requirementsSchema.ts';
+import type { RequirementsDocument } from './requirementsSchema.ts';
 
 export interface DesignVisualTokens {
   primaryColor: string;

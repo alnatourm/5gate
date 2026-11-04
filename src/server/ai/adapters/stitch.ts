@@ -620,7 +620,7 @@ export class StitchAdapter implements ProviderAdapter {
     if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('aborted')) {
       return {
         status: 'timeout',
-        statusCode: 504,
+        statusCode: 408,
         authenticationVerified: false,
         message: `انتهت مهلة الاتصال بخدمة Google Stitch MCP (${OFFICIAL_STITCH_MCP_ENDPOINT}): ${rawMsg}`,
       };
@@ -628,7 +628,7 @@ export class StitchAdapter implements ProviderAdapter {
 
     return {
       status: 'failed',
-      statusCode: 502,
+      statusCode: 422,
       authenticationVerified: false,
       message: `فشل الاتصال أو تنفيذ العملية عبر خدمة Google Stitch MCP (${OFFICIAL_STITCH_MCP_ENDPOINT}): ${rawMsg}`,
     };

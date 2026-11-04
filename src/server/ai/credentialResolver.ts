@@ -891,7 +891,7 @@ export function resolveProjectGateCredentials(params: {
         ? `مفتاح Google Stitch API Key (X-Goog-Api-Key) غير مهيأ على الخادم للبوابة ${gate}. يرجى إدخال مفتاح Stitch الرسمي في لوحة الإدارة للاتصال بـ https://stitch.googleapis.com/mcp.`
         : `مفتاح الذكاء الاصطناعي المدار للمزود (${resolved.providerType}) في البوابة ${gate} غير مهيأ على الخادم.`
     );
-    err.statusCode = 503;
+    err.statusCode = 400;
     err.errorType = 'auth_error';
     throw err;
   }

@@ -210,7 +210,7 @@ const DEFAULT_PROVIDERS: FactoryProvider[] = [
     status: 'active',
     enabled: true,
     apiKey: '',
-    useSystemEnv: true,
+    useSystemEnv: false,
     endpoint: 'https://stitch.googleapis.com/mcp',
     latency: '110ms',
     assignedGates: ['GATE 02'],
@@ -539,6 +539,54 @@ const normalizeProviderEndpointClient = (
   return trimmed;
 };
 
+async function safeReadJsonResponse<T = any>(
+  res: Response,
+  fallbackErrorMessage: string = 'فشلت العملية'
+): Promise<{ ok: boolean; status: number; data: T; error?: string }> {
+  let rawText = '';
+  try {
+    rawText = await res.text();
+  } catch (readErr: any) {
+    return {
+      ok: false,
+      status: res.status,
+      data: {} as T,
+      error: `تعذر قراءة الاستجابة من الخادم: ${readErr?.message || 'خطأ غير معروف'}`,
+    };
+  }
+
+  let parsed: any = null;
+  try {
+    parsed = rawText ? JSON.parse(rawText) : {};
+  } catch {
+    // Upstream HTML proxy interception (Cloud Run 502/503/504)
+    const titleMatch = rawText.match(/<title>(.*?)<\/title>/i);
+    const bodyMatch = rawText.match(/<h1>(.*?)<\/h1>/i);
+    const errorTitle = titleMatch?.[1] || bodyMatch?.[1] || `خطأ استجابة غير صالحة من الخادم (HTTP ${res.status})`;
+    return {
+      ok: false,
+      status: res.status,
+      data: {} as T,
+      error: `استجابة غير صالحة من الخادم (HTTP ${res.status}): ${errorTitle}`,
+    };
+  }
+
+  if (!res.ok) {
+    return {
+      ok: false,
+      status: res.status,
+      data: parsed,
+      error: parsed?.error || parsed?.message || `${fallbackErrorMessage} (HTTP ${res.status})`,
+    };
+  }
+
+  return {
+    ok: true,
+    status: res.status,
+    data: parsed,
+  };
+}
+
 const mergeProvidersWithDefaults = (savedList: FactoryProvider[]): FactoryProvider[] => {
   if (!Array.isArray(savedList) || savedList.length === 0) return DEFAULT_PROVIDERS;
   const savedMap = new Map(savedList.filter(Boolean).map((p) => [p.id, p]));
@@ -546,10 +594,17 @@ const mergeProvidersWithDefaults = (savedList: FactoryProvider[]): FactoryProvid
     const saved = savedMap.get(def.id);
     if (!saved) return def;
     const providerType = inferProviderTypeClient({ ...def, ...saved });
+    const nextUseSystemEnv =
+      def.id === 'prov-stitch'
+        ? Boolean(saved.apiKey || saved.hasKey ? saved.useSystemEnv : false)
+        : typeof saved.useSystemEnv === 'boolean'
+        ? saved.useSystemEnv
+        : def.useSystemEnv;
     return {
       ...def,
       ...saved,
       providerType,
+      useSystemEnv: nextUseSystemEnv,
       endpoint: (saved.endpoint && String(saved.endpoint).trim()) || def.endpoint,
       model: saved.model && String(saved.model).trim() ? String(saved.model).trim() : def.model,
       enabled: typeof saved.enabled === 'boolean' ? saved.enabled : def.enabled,
@@ -798,6 +853,7 @@ export default function App() {
   const [isSavingConfig, setIsSavingConfig] = useState<boolean>(false);
   const [hasSystemEnvKey, setHasSystemEnvKey] = useState(true);
   const [testingTargetId, setTestingTargetId] = useState<string | null>(null);
+  const [inlineStitchKey, setInlineStitchKey] = useState<string>('');
   const [agentTestResults, setAgentTestResults] = useState<Record<string, { ok: boolean; status?: string; reply: string; latencyMs: number; model: string; keySource: string }>>({});
   const [visibleKeyIds, setVisibleKeyIds] = useState<Record<string, boolean>>({});
   const [customModelModeGates, setCustomModelModeGates] = useState<Record<number, boolean>>({});
@@ -1779,10 +1835,11 @@ export default function App() {
           prompt: userMsgText,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || `فشل تنفيذ وكيل البوابة ${gateNum}`);
+      const parsedRes = await safeReadJsonResponse(res, `فشل تنفيذ وكيل البوابة ${gateNum}`);
+      if (!parsedRes.ok) {
+        throw new Error(parsedRes.error);
       }
+      const data = parsedRes.data;
 
       if (gateNum === 2 && data.artifact) {
         const design = data.artifact as DesignArtifact;
@@ -1849,6 +1906,37 @@ export default function App() {
     await executeStageAgentPrompt(chatInput);
   };
 
+  // Save Stitch API Key directly and trigger generation
+  const handleSaveInlineStitchKey = async (overrideKey?: string) => {
+    const keyToSave = (overrideKey || inlineStitchKey || '').trim();
+    if (!keyToSave) return;
+    setIsAiProcessing(true);
+    try {
+      const nextProvs = factoryProviders.map(p =>
+        p.id === 'prov-stitch' || p.providerType === 'stitch'
+          ? { ...p, apiKey: keyToSave, hasKey: true, useSystemEnv: false, enabled: true, status: 'active' as const }
+          : p
+      );
+      const nextAgents = factoryAgents.map(a =>
+        a.gate === 2
+          ? { ...a, apiKey: keyToSave, hasKey: true, enabled: true }
+          : a
+      );
+      const savedOk = await syncSystemConfigToBackend(nextProvs, nextAgents, 'تم حفظ وتفعيل مفتاح Google Stitch بنجاح!');
+      if (savedOk && activeProject) {
+        setInlineStitchKey('');
+        setGate1ErrorBanner(null);
+        await executeStageAgentPrompt(
+          `قم بتوليد وتحديث تصميم الواجهات التفاعلية والشاشات لمشروع "${activeProject.name}" عبر خدمة Google Stitch MCP استناداً إلى وثيقة المتطلبات المعتمدة.`
+        );
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'فشل حفظ مفتاح Stitch');
+    } finally {
+      setIsAiProcessing(false);
+    }
+  };
+
   // APPROVE & CONTINUE BUTTON (GATES 1-5 REAL VALIDATION, LOCKING & SNAPSHOT)
   const handleApproveAndAdvance = async () => {
     if (!activeProject || !sessionToken) return;
@@ -1875,10 +1963,11 @@ export default function App() {
           headers: authHeaders(),
           body: JSON.stringify(bodyPayload),
         });
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || 'فشل اعتماد وثيقة المتطلبات.');
+        const parsedRes = await safeReadJsonResponse(res, 'فشل اعتماد وثيقة المتطلبات.');
+        if (!parsedRes.ok) {
+          throw new Error(parsedRes.error);
         }
+        const data = parsedRes.data;
 
         const approval = data.approval;
         setGate1Locked(true);
@@ -1912,6 +2001,16 @@ export default function App() {
 
         showToast(`تم اعتماد وقفل وثيقة المتطلبات (v${approval.approvedVersion}) والانتقال إلى البوابة 2 بنجاح!`);
 
+        // Check if Stitch provider has a configured API key before automatically attempting remote MCP generation
+        const stitchProv = factoryProviders.find(p => p.id === 'prov-stitch' || p.providerType === 'stitch');
+        const stitchHasKey = Boolean(stitchProv?.hasKey || (stitchProv?.apiKey && stitchProv.apiKey.trim()));
+
+        if (!stitchHasKey) {
+          setGate1ErrorBanner(null);
+          showToast('انتقلت إلى البوابة 2 بنجاح! أدخل مفتاح Google Stitch للبدء في توليد الشاشات عبر Stitch MCP.');
+          return;
+        }
+
         // Trigger remote Google Stitch project & screen generation from the newly approved Gate 1 PRD when entering Gate 2
         try {
           setIsAiProcessing(true);
@@ -1922,20 +2021,21 @@ export default function App() {
               prompt: `قم بتوليد وتحديث تصميم الواجهات التفاعلية والشاشات لمشروع "${approval.document.projectName}" (${approval.document.overview}) عبر خدمة Google Stitch MCP استناداً إلى وثيقة المتطلبات المعتمدة.`,
             }),
           });
-          const g2Data = await g2Res.json();
-          if (g2Res.ok && g2Data.artifact) {
-            const design = g2Data.artifact as DesignArtifact;
+          const g2Parsed = await safeReadJsonResponse(g2Res, 'تعذر إتمام عملية Google Stitch MCP عن بُعد.');
+          if (g2Parsed.ok && g2Parsed.data?.artifact) {
+            const design = g2Parsed.data.artifact as DesignArtifact;
             setGate2Design(design);
-            setGate2Version(g2Data.version);
+            setGate2Version(g2Parsed.data.version);
             setGate2Locked(false);
             if (design.screens?.length > 0) {
               const firstScreenId = design.screens[0].id;
               setGate2ActiveScreenId(firstScreenId);
               setStitchScreenTab(`stitch-screen:${firstScreenId}`);
             }
-          } else if (!g2Res.ok) {
+            showToast(`تم توليد شاشات التصميم بنجاح عبر Google Stitch MCP (${design.screens.length} شاشات)!`);
+          } else if (!g2Parsed.ok) {
             setGate1ErrorBanner(
-              g2Data.error || 'تعذر توليد شاشات التصميم عبر خدمة Google Stitch MCP. يرجى التحقق من مفتاح Stitch API والمحاولة مجدداً.'
+              g2Parsed.error || 'تعذر توليد شاشات التصميم عبر خدمة Google Stitch MCP. يرجى التحقق من مفتاح Stitch API والمحاولة مجدداً.'
             );
           }
         } catch (err: any) {
@@ -1965,10 +2065,11 @@ export default function App() {
           expectedVersion: versionMap[currentG] || undefined,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || `فشل اعتماد البوابة ${currentG}. تأكد من توليد المخرجات أولاً.`);
+      const parsedRes = await safeReadJsonResponse(res, `فشل اعتماد البوابة ${currentG}.`);
+      if (!parsedRes.ok) {
+        throw new Error(parsedRes.error);
       }
+      const data = parsedRes.data;
 
       setGateApprovals(prev => ({ ...prev, [currentG]: true }));
       if (currentG === 2) setGate2Locked(true);
@@ -3195,10 +3296,14 @@ export default function App() {
                                               prompt: `قم بتوليد وتحديث تصميم الواجهات التفاعلية والشاشات لمشروع "${activeProject.name}" على لوحة Google Stitch Canvas.`,
                                             }),
                                           });
-                                          const data = await res.json();
-                                          if (!res.ok) {
-                                            throw new Error(data.error || 'يرجى اعتماد وثيقة المتطلبات في البوابة 1 أولاً قبل توليد تصميم المشروع.');
+                                          const parsedRes = await safeReadJsonResponse(
+                                            res,
+                                            'يرجى اعتماد وثيقة المتطلبات في البوابة 1 أولاً والتأكد من إعداد مفتاح Google Stitch للاتصال بـ https://stitch.googleapis.com/mcp.'
+                                          );
+                                          if (!parsedRes.ok) {
+                                            throw new Error(parsedRes.error);
                                           }
+                                          const data = parsedRes.data;
                                           if (data.artifact) {
                                             const design = data.artifact as DesignArtifact;
                                             setGate2Design(design);
@@ -3801,7 +3906,7 @@ export default function App() {
                                   </span>
                                 )}
                               </div>
-                              {prov.useSystemEnv ? (
+                              {prov.useSystemEnv && (prov.hasKey || (prov.providerType === 'gemini' && hasSystemEnvKey)) ? (
                                 <div className="h-10 px-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-slate-600">
                                   <span className="font-mono text-[11px]" dir="ltr">
                                     {prov.hasKey
@@ -3836,6 +3941,8 @@ export default function App() {
                                       placeholder={
                                         prov.hasKey
                                           ? `مفتاح محفوظ في النظام (${prov.maskedKey || '••••••••'}) — جاهز للاتصال أو أدخل مفتاحاً جديداً`
+                                          : prov.id === 'prov-stitch' || prov.providerType === 'stitch'
+                                          ? 'أدخل مفتاح Google Stitch الرسمي (X-Goog-Api-Key) للاتصال بـ https://stitch.googleapis.com/mcp'
                                           : 'أدخل مفتاح الـ API هنا (AIzaSy... أو sk-... أو gsk_...)'
                                       }
                                       dir="ltr"
@@ -5777,6 +5884,48 @@ export default function App() {
                                 </div>
                               )}
                             </div>
+
+                            {/* Interactive Inline Key Input Card if Stitch Key is Missing */}
+                            {(() => {
+                              const stitchProv = factoryProviders.find(p => p.id === 'prov-stitch' || p.providerType === 'stitch');
+                              const hasStitchKey = Boolean(stitchProv?.hasKey || (stitchProv?.apiKey && stitchProv.apiKey.trim()));
+                              if (hasStitchKey && !gate1ErrorBanner?.includes('مفتاح')) return null;
+                              return (
+                                <div className="bg-gradient-to-r from-orange-50 to-amber-50 border-2 border-orange-300 rounded-2xl p-4 space-y-3 text-xs shadow-xs">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2 font-black text-orange-900 text-sm">
+                                      <Sparkles className="w-5 h-5 text-orange-600 shrink-0" />
+                                      <span>مفتاح Google Stitch API Key مطلوب للاتصال بالخدمة الرسمية (https://stitch.googleapis.com/mcp)</span>
+                                    </div>
+                                    <span className="text-[10px] bg-orange-200 text-orange-800 px-2.5 py-0.5 rounded-full font-bold font-mono" dir="ltr">
+                                      X-Goog-Api-Key
+                                    </span>
+                                  </div>
+                                  <p className="text-orange-800 text-xs leading-relaxed">
+                                    محرك Google Stitch MCP يتصل بسحابة Google لتوليد الشاشات التفاعلية الحية. يرجى إدخال مفتاح Google Stitch أو Google Cloud AI API Key الخاص بك هنا لتفعيله والبدء الفوري في توليد الشاشات.
+                                  </p>
+                                  <div className="flex flex-col sm:flex-row items-center gap-2 pt-1">
+                                    <input
+                                      type="password"
+                                      value={inlineStitchKey}
+                                      onChange={(e) => setInlineStitchKey(e.target.value)}
+                                      placeholder="أدخل مفتاح Google Stitch API Key هنا..."
+                                      className="flex-1 w-full h-10 px-3.5 rounded-xl bg-white border border-orange-300 font-mono text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 shadow-2xs"
+                                      dir="ltr"
+                                    />
+                                    <button
+                                      type="button"
+                                      disabled={!inlineStitchKey.trim() || isAiProcessing}
+                                      onClick={() => handleSaveInlineStitchKey()}
+                                      className="w-full sm:w-auto px-5 py-2.5 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center justify-center gap-1.5 shrink-0"
+                                    >
+                                      <Key className="w-3.5 h-3.5" />
+                                      <span>{isAiProcessing ? 'جاري الحفظ والاتصال...' : 'حفظ والاتصال بـ Google Stitch'}</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })()}
 
                             {/* Error Banner if Remote Stitch Call Failed */}
                             {gate1ErrorBanner && (

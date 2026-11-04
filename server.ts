@@ -59,7 +59,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     status: 'active',
     enabled: true,
     apiKey: '',
-    useSystemEnv: true,
+    useSystemEnv: false,
     endpoint: 'https://stitch.googleapis.com/mcp',
     latency: '110ms',
     assignedGates: ['GATE 02'],
@@ -468,11 +468,13 @@ function upgradeStitchDesignerConfig(
           : p.endpoint;
       const nextModel =
         !p.model || p.model === 'google-stitch-v2-ui' ? 'GEMINI_3_FLASH' : p.model;
+      const nextUseSystemEnv = p.apiKey ? p.useSystemEnv : false;
       if (
         p.status === 'standby' ||
         p.latency === 'N/A' ||
         p.endpoint !== nextEndpoint ||
-        p.model !== nextModel
+        p.model !== nextModel ||
+        p.useSystemEnv !== nextUseSystemEnv
       ) {
         changed = true;
         return {
@@ -481,6 +483,7 @@ function upgradeStitchDesignerConfig(
           enabled: true,
           endpoint: nextEndpoint,
           model: nextModel,
+          useSystemEnv: nextUseSystemEnv,
           latency: p.latency === 'N/A' ? '110ms' : p.latency,
         };
       }
@@ -1041,7 +1044,8 @@ export function createApp(options: CreateAppOptions = {}) {
           logs: [`[ERROR] ${redactSecrets(err.message || 'Execution failed')}`],
         });
       }
-      const status = err.statusCode || 500;
+      const rawStatus = err.statusCode || 400;
+      const status = (rawStatus >= 500 && rawStatus <= 504) ? 422 : rawStatus;
       return res.status(status).json({
         runId: runId || undefined,
         error: redactSecrets(err.message || 'فشل تنفيذ طلب وكيل المتطلبات.'),
@@ -1618,12 +1622,13 @@ export function createApp(options: CreateAppOptions = {}) {
           logs: [`[ERROR] ${redactSecrets(err.message || 'Execution failed')}`],
         });
       }
-      const status = err.statusCode || 500;
-        return res.status(status).json({
-          runId: runId || undefined,
-          error: redactSecrets(err.message || `فشل تشغيل وكيل البوابة ${gateNum}.`),
-          status: 'failed',
-        });
+      const rawStatus = err.statusCode || 400;
+      const status = (rawStatus >= 500 && rawStatus <= 504) ? 422 : rawStatus;
+      return res.status(status).json({
+        runId: runId || undefined,
+        error: redactSecrets(err.message || `فشل تشغيل وكيل البوابة ${gateNum}.`),
+        status: 'failed',
+      });
       }
     }
 
@@ -1776,7 +1781,8 @@ export function createApp(options: CreateAppOptions = {}) {
             logs: [`[ERROR] ${redactSecrets(err.message || 'Repair failed')}`],
           });
         }
-        const status = err.statusCode || 500;
+        const rawStatus = err.statusCode || 400;
+        const status = (rawStatus >= 500 && rawStatus <= 504) ? 422 : rawStatus;
         return res.status(status).json({
           error: redactSecrets(err.message || 'فشل تشغيل حلقة الإصلاح التلقائي.'),
         });
@@ -2325,9 +2331,10 @@ export function createApp(options: CreateAppOptions = {}) {
           adapterResult.status === 'integration_required' ||
           adapterResult.status === 'unsupported' ||
           adapterResult.status === 'unsupported_protocol';
-        const httpStatus = isUnsupportedOrIntegration
+        const rawHttpStatus = isUnsupportedOrIntegration
           ? 501
-          : adapterResult.statusCode || 502;
+          : adapterResult.statusCode || 422;
+        const httpStatus = (rawHttpStatus >= 502 && rawHttpStatus <= 504) ? 422 : rawHttpStatus;
 
         return res.status(httpStatus).json({
           ok: false,

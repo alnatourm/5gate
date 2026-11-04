@@ -3,20 +3,20 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
-  RequirementsDocument,
+  type RequirementsDocument,
   createInitialRequirementsDocument,
   formatRequirementsToMarkdown,
   validateRequirementsDocument,
 } from '../shared/requirementsSchema.ts';
-import { DesignArtifact, validateDesignArtifact } from '../shared/designSchema.ts';
+import { type DesignArtifact, validateDesignArtifact } from '../shared/designSchema.ts';
 import {
-  CodeArtifact,
-  GeneratedProjectFile,
+  type CodeArtifact,
+  type GeneratedProjectFile,
   validateCodeArtifact,
   validateRelativeFilePath,
 } from '../shared/codeSchema.ts';
-import { QAReportArtifact } from './qaRunner.ts';
-import { DeliveryArtifact } from './deliveryPackager.ts';
+import type { QAReportArtifact } from './qaRunner.ts';
+import type { DeliveryArtifact } from './deliveryPackager.ts';
 
 export type CommercialMode = 'managed' | 'byok';
 
