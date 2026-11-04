@@ -901,7 +901,7 @@ export class StitchAdapter implements ProviderAdapter {
         const cleanCustomTitle = customScreenTitle.replace(/^(?:شاشة|صفحة|واجهة)\s+/i, '').trim();
         const fullArabicScreenTitle = `شاشة ${cleanCustomTitle}`;
         const addPrompt = `Generate the complete Arabic RTL UI screen "${fullArabicScreenTitle}" for project "${brief.projectName}" (${brief.overview}). Customer instruction: ${instructions}. Primary color: ${brief.primaryColor}.`;
-        const newRemoteScreen = await remoteProject.generate(addPrompt, 'DESKTOP', stitchModelId);
+        const newRemoteScreen = await remoteProject.generate(addPrompt, 'DESKTOP');
         const newRemoteId = String(newRemoteScreen.screenId || '').trim();
         if (!newRemoteId) {
           throw new StitchError({
@@ -960,7 +960,7 @@ export class StitchAdapter implements ProviderAdapter {
         const revisionPrompt = `Update the Arabic RTL screen "${targetScreen.title}" for project "${brief.projectName}" according to customer revision request: ${instructions}. Keep all PRD requirements (${brief.features.join(', ')}). Primary color: ${brief.primaryColor}.`;
         const editedRemoteScreen = await remoteProject
           .screen(targetScreen.remoteScreenId)
-          .edit(revisionPrompt, 'DESKTOP', stitchModelId);
+          .edit(revisionPrompt, 'DESKTOP');
 
         const editedRemoteId = String(
           editedRemoteScreen.screenId || targetScreen.remoteScreenId
@@ -1006,8 +1006,7 @@ export class StitchAdapter implements ProviderAdapter {
 
           const generatedScreen = await remoteProject.generate(
             promptWithInstructions,
-            plan.deviceType,
-            stitchModelId
+            plan.deviceType
           );
 
           const remoteScreenId = String(generatedScreen.screenId || '').trim();
@@ -1075,7 +1074,7 @@ export class StitchAdapter implements ProviderAdapter {
         remoteProjectName: `projects/${remoteProjectId}`,
         remoteEndpoint: endpointUrl,
         transport: 'mcp' as const,
-        modelUsed: stitchModelId,
+        modelUsed: 'Stitch server default (modelId omitted)',
         remoteExecutionStatus:
           operationType === 'create_project_and_screens'
             ? ('succeeded' as const)
