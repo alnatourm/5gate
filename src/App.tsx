@@ -3380,6 +3380,16 @@ export default function App() {
                                               <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700">
                                                 Tokens: {gate2Design.visualTokens?.primaryColor || '#FF6B00'} • {gate2Design.visualTokens?.secondaryColor || '#0F172A'}
                                               </span>
+                                              {activeScr.screenshotUrl && (
+                                                <a
+                                                  href={activeScr.screenshotUrl}
+                                                  target="_blank"
+                                                  rel="noreferrer"
+                                                  className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold"
+                                                >
+                                                  فتح صورة Stitch الأصلية
+                                                </a>
+                                              )}
                                             </div>
                                           </div>
                                           <div className="h-[420px] w-full bg-white">

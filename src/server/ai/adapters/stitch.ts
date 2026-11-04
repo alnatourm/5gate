@@ -859,9 +859,45 @@ export class StitchAdapter implements ProviderAdapter {
         (typeof currentDesign?.remoteProjectId === 'string' && currentDesign.remoteProjectId.trim()) ||
         '';
 
-      const remoteProject = existingRemoteProjectId
-        ? sdk.project(existingRemoteProjectId)
-        : await sdk.createProject(brief.projectName);
+      // Recovery-first: never create another same-named Stitch project when a prior
+      // attempt may have created it but failed before Factory persisted its remote ID.
+      let remoteProject: any;
+      let recoveredByTitle = false;
+      if (existingRemoteProjectId) {
+        remoteProject = sdk.project(existingRemoteProjectId);
+      } else {
+        const remoteProjects = await sdk.projects();
+        const exactTitleMatches = (Array.isArray(remoteProjects) ? remoteProjects : []).filter((item: any) => {
+          const data = item?.data || item;
+          const title = String(data?.title || data?.name || data?.projectName || '').trim();
+          return title.toLocaleLowerCase() === brief.projectName.trim().toLocaleLowerCase();
+        });
+        if (exactTitleMatches.length > 1) {
+          const ids = exactTitleMatches
+            .map((item: any) => String(item?.projectId || item?.id || item?.data?.projectId || '').trim())
+            .filter(Boolean);
+          throw new StitchError({
+            code: 'UNKNOWN_ERROR',
+            message: `وجدت عدة مشاريع Stitch بالاسم "${brief.projectName}" (${ids.join(', ')}). أوقف Factory إنشاء مشروع جديد لتجنب التكرار؛ يجب اختيار المشروع الصحيح واستعادته صراحةً.`,
+            recoverable: true,
+          });
+        }
+        if (exactTitleMatches.length === 1) {
+          const match = exactTitleMatches[0] as any;
+          const recoveredId = String(match?.projectId || match?.id || match?.data?.projectId || '').trim();
+          if (!recoveredId) {
+            throw new StitchError({
+              code: 'UNKNOWN_ERROR',
+              message: 'Stitch returned a matching project without a usable project ID; refusing to create a duplicate.',
+              recoverable: true,
+            });
+          }
+          remoteProject = sdk.project(recoveredId);
+          recoveredByTitle = true;
+        } else {
+          remoteProject = await sdk.createProject(brief.projectName);
+        }
+      }
 
       const remoteProjectId = String(remoteProject.projectId || '').trim();
       if (!remoteProjectId) {
@@ -872,14 +908,56 @@ export class StitchAdapter implements ProviderAdapter {
         });
       }
 
-      const existingScreens: any[] = Array.isArray(currentDesign?.screenInventory)
+      let existingScreens: any[] = Array.isArray(currentDesign?.screenInventory)
         ? currentDesign.screenInventory.filter(
             (s: any) => Boolean(s?.remoteScreenId && s?.htmlContent)
           )
         : [];
 
+      // If the Factory artifact lost its screen inventory, restore it from the
+      // already-existing Stitch project. Fetch both HTML and screenshot URLs.
+      if (existingScreens.length === 0 && (existingRemoteProjectId || recoveredByTitle)) {
+        const remoteScreens = await remoteProject.screens();
+        for (let idx = 0; idx < (Array.isArray(remoteScreens) ? remoteScreens.length : 0); idx++) {
+          const remoteScreen: any = remoteScreens[idx];
+          const remoteScreenId = String(remoteScreen?.screenId || remoteScreen?.id || '').trim();
+          if (!remoteScreenId) continue;
+          const rawHtmlUrl = await remoteScreen.getHtml();
+          const screenshotUrl = await remoteScreen.getImage().catch(() => '');
+          const { htmlContent, htmlDownloadUrl } = await this.downloadScreenHtml(
+            rawHtmlUrl,
+            remoteScreen.data,
+            fetchFn
+          );
+          const title =
+            String(remoteScreen?.data?.title || remoteScreen?.title || `Stitch Screen ${idx + 1}`).trim();
+          const plan = brief.plannedScreens[idx];
+          existingScreens.push({
+            id: plan?.id || `screen-${remoteScreenId}`,
+            remoteScreenId,
+            remoteScreenName: `projects/${remoteProjectId}/screens/${remoteScreenId}`,
+            title,
+            name: title,
+            route: plan?.route || `/recovered-${idx + 1}`,
+            role: plan?.role || brief.userRoles[0] || 'المستخدم',
+            primaryRole: plan?.role || brief.userRoles[0] || 'المستخدم',
+            purpose: plan?.purpose || `شاشة مستعادة من مشروع Google Stitch الموجود: ${title}`,
+            summary: plan?.purpose || `شاشة مستعادة من مشروع Google Stitch الموجود: ${title}`,
+            layoutType: plan?.layoutType || 'dashboard',
+            deviceType: remoteScreen?.data?.deviceType || plan?.deviceType || 'DESKTOP',
+            kpis: plan?.kpis || [],
+            sections: plan?.sections || [],
+            actions: plan?.actions || [],
+            htmlContent,
+            htmlDownloadUrl,
+            screenshotUrl,
+            generatedAt: new Date().toISOString(),
+          });
+        }
+      }
+
       const isRevisionOnExistingProject =
-        Boolean(existingRemoteProjectId) &&
+        Boolean(existingRemoteProjectId || recoveredByTitle) &&
         existingScreens.length > 0 &&
         Boolean(instructions) &&
         !instructions.includes('قم بتوليد وتحديث تصميم الواجهات التفاعلية والشاشات للمشروع.');
@@ -891,10 +969,14 @@ export class StitchAdapter implements ProviderAdapter {
 
       const generatedScreenInventory: any[] = [];
       const affectedScreenIds: string[] = [];
-      let operationType: 'create_project_and_screens' | 'edit_screens' | 'generate_screen_from_text' =
+      let operationType: 'create_project_and_screens' | 'edit_screens' | 'generate_screen_from_text' | 'recover_existing_project' =
         'create_project_and_screens';
 
-      if (isRevisionOnExistingProject && addScreenMatch?.[1]) {
+      if (recoveredByTitle && existingScreens.length > 0 && !isRevisionOnExistingProject) {
+        operationType = 'recover_existing_project';
+        generatedScreenInventory.push(...existingScreens);
+        affectedScreenIds.push(...existingScreens.map((screen: any) => screen.remoteScreenId));
+      } else if (isRevisionOnExistingProject && addScreenMatch?.[1]) {
         // Customer requested adding a new screen to the existing Stitch project
         operationType = 'generate_screen_from_text';
         const customScreenTitle = addScreenMatch[1].trim().slice(0, 80);

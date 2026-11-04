@@ -161,6 +161,21 @@ describe('OGroup AI Factory - Complete 5-Gate & Official Google Stitch MCP Verif
           );
         }
 
+        if (toolName === 'list_projects') {
+          const payload = { projects: [] };
+          return new Response(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: bodyObj.id,
+              result: {
+                structuredContent: payload,
+                content: [{ type: 'text', text: JSON.stringify(payload) }],
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+
         if (toolName === 'create_project') {
           const projectTitle = toolArgs.title || 'Untitled Stitch Project';
           const projSlug = projectTitle.includes('السيارات') ? 'proj-cars-900' : 'proj-clinic-100';
