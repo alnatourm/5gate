@@ -42,6 +42,7 @@ export class ConfigurableStitchToolClient extends StitchToolClientBase {
   private readonly customFetch?: ProviderHttpClient;
   private readonly explicitEndpoint: string;
   private readonly explicitApiKey: string;
+  public readonly operationTimeout: number;
 
   constructor(options: {
     apiKey: string;
@@ -50,14 +51,16 @@ export class ConfigurableStitchToolClient extends StitchToolClientBase {
     fetchImpl?: ProviderHttpClient;
   }) {
     const baseUrl = options.baseUrl || OFFICIAL_STITCH_MCP_ENDPOINT;
+    const effectiveTimeout = options.timeout ?? 300_000; // 5 minutes default for long-running generation
     super({
       apiKey: options.apiKey,
       baseUrl,
-      timeout: options.timeout ?? 180_000,
+      timeout: effectiveTimeout,
     });
     this.customFetch = options.fetchImpl;
     this.explicitEndpoint = baseUrl;
     this.explicitApiKey = options.apiKey;
+    this.operationTimeout = effectiveTimeout;
   }
 
   async doConnect(): Promise<void> {
@@ -89,6 +92,24 @@ export class ConfigurableStitchToolClient extends StitchToolClientBase {
     };
     await anySelf.client.connect(anySelf.transport);
     anySelf.isConnected = true;
+  }
+
+  async callTool(name: string, args: Record<string, any>): Promise<any> {
+    const anySelf = this as any;
+    if (!anySelf.isConnected) {
+      await this.connect();
+    }
+    const localTool = (anySelf.localVirtualTools || []).find((t: any) => t.name === name);
+    if (localTool) {
+      return localTool.execute(this, args);
+    }
+    // Pass explicit operationTimeout to prevent default 60s MCP timeout
+    const result = await anySelf.client.callTool(
+      { name, arguments: args },
+      undefined,
+      { timeout: this.operationTimeout }
+    );
+    return anySelf.parseToolResponse(result, name);
   }
 }
 
@@ -774,7 +795,7 @@ export class StitchAdapter implements ProviderAdapter {
     const client = new ConfigurableStitchToolClient({
       apiKey,
       baseUrl: endpointUrl,
-      timeout: request.timeoutMs ?? 180_000,
+      timeout: request.timeoutMs ?? 300_000,
       fetchImpl: options?.fetchImpl,
     });
 
@@ -859,11 +880,22 @@ export class StitchAdapter implements ProviderAdapter {
         (typeof currentDesign?.remoteProjectId === 'string' && currentDesign.remoteProjectId.trim()) ||
         '';
 
-      const remoteProject = existingRemoteProjectId
-        ? sdk.project(existingRemoteProjectId)
-        : await sdk.createProject(brief.projectName);
+      let remoteProject: any;
+      let remoteProjectId = '';
+      if (existingRemoteProjectId) {
+        try {
+          remoteProject = sdk.project(existingRemoteProjectId);
+          remoteProjectId = existingRemoteProjectId;
+        } catch (projErr) {
+          console.warn('[Stitch] Failed to reuse existing remote project ID:', existingRemoteProjectId, projErr);
+          remoteProject = await sdk.createProject(brief.projectName);
+          remoteProjectId = String(remoteProject.projectId || '').trim();
+        }
+      } else {
+        remoteProject = await sdk.createProject(brief.projectName);
+        remoteProjectId = String(remoteProject.projectId || '').trim();
+      }
 
-      const remoteProjectId = String(remoteProject.projectId || '').trim();
       if (!remoteProjectId) {
         throw new StitchError({
           code: 'UNKNOWN_ERROR',
