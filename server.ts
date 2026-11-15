@@ -428,10 +428,7 @@ function normalizeAgents(
     const resolvedKey =
       saved.clearApiKey === true ? '' : incomingKey || prev.apiKey || def.apiKey;
 
-    // If the agent has a key for its linked provider and the linked provider has no key yet, sync it to the provider in-memory
-    if (linkedProv && resolvedKey && !linkedProv.apiKey) {
-      linkedProv.apiKey = resolvedKey;
-    }
+    // Preserve each agent's individual key strictly for its own gate/stage
 
     return {
       ...def,
@@ -754,6 +751,8 @@ export function createApp(options: CreateAppOptions = {}) {
           error: endpointCheck.error || 'عنوان الاتصال غير متوافق مع المزود المحدد.',
         });
       }
+      const parsedGate = typeof assignedGate === 'number' ? assignedGate : typeof assignedGate === 'string' && assignedGate.trim() ? Number(assignedGate) : null;
+      const validGate = typeof parsedGate === 'number' && !isNaN(parsedGate) && parsedGate >= 1 && parsedGate <= 5 ? parsedGate : null;
       const saved = storage.saveAIConnection({
         userId: req.user!.id,
         provider: String(provider),
@@ -761,7 +760,7 @@ export function createApp(options: CreateAppOptions = {}) {
         apiKey: typeof apiKey === 'string' ? apiKey : '',
         endpoint: endpointCheck.endpoint,
         active: typeof active === 'boolean' ? active : true,
-        assignedGate: typeof assignedGate === 'number' ? assignedGate : null,
+        assignedGate: validGate,
       });
       return res.json({
         connection: saved,
@@ -934,7 +933,7 @@ export function createApp(options: CreateAppOptions = {}) {
         return res.status(403).json({ error: 'غير مصرح لك بالوصول إلى هذا المشروع.' });
       }
 
-      const { message, instructions, expectedVersion } = req.body || {};
+      const { message, instructions, expectedVersion, apiKey, provider, model, connectionId, endpoint } = req.body || {};
       const userMessage = typeof message === 'string' && message.trim()
         ? message.trim()
         : typeof instructions === 'string' && instructions.trim()
@@ -968,6 +967,7 @@ export function createApp(options: CreateAppOptions = {}) {
         providers: providersConfig,
         agents: agentsConfig,
         managedGeminiApiKey: systemEnvKey,
+        requestOverride: { apiKey, provider, model, connectionId, endpoint },
       });
 
       const run = storage.startGateRun({
@@ -1204,7 +1204,7 @@ export function createApp(options: CreateAppOptions = {}) {
     const startTime = Date.now();
 
     try {
-      const { prompt, message, instructions, stackPreference, maxRepairAttempts, expectedVersion } =
+      const { prompt, message, instructions, stackPreference, maxRepairAttempts, expectedVersion, apiKey, provider, model, connectionId, endpoint } =
         req.body || {};
       const userPrompt =
         typeof prompt === 'string' && prompt.trim()
@@ -1233,6 +1233,7 @@ export function createApp(options: CreateAppOptions = {}) {
           providers: providersConfig,
           agents: agentsConfig,
           managedGeminiApiKey: systemEnvKey,
+          requestOverride: { apiKey, provider, model, connectionId, endpoint },
         });
 
         const run = storage.startGateRun({
@@ -1323,6 +1324,7 @@ export function createApp(options: CreateAppOptions = {}) {
           providers: providersConfig,
           agents: agentsConfig,
           managedGeminiApiKey: systemEnvKey,
+          requestOverride: { apiKey, provider, model, connectionId, endpoint },
         });
 
         const nextVersion = gate3State.version + 1;
@@ -1419,6 +1421,7 @@ export function createApp(options: CreateAppOptions = {}) {
           providers: providersConfig,
           agents: agentsConfig,
           managedGeminiApiKey: systemEnvKey,
+          requestOverride: { apiKey, provider, model, connectionId, endpoint },
         });
 
         const devTarget = resolveProjectGateCredentials({
@@ -1429,6 +1432,7 @@ export function createApp(options: CreateAppOptions = {}) {
           providers: providersConfig,
           agents: agentsConfig,
           managedGeminiApiKey: systemEnvKey,
+          requestOverride: { apiKey, provider, model, connectionId, endpoint },
         });
 
         const run = storage.startGateRun({
@@ -1536,6 +1540,7 @@ export function createApp(options: CreateAppOptions = {}) {
           providers: providersConfig,
           agents: agentsConfig,
           managedGeminiApiKey: systemEnvKey,
+          requestOverride: { apiKey, provider, model, connectionId, endpoint },
         });
 
         const gate5State = storage.getGate5State(project.id)!;

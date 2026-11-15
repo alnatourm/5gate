@@ -671,10 +671,16 @@ export class FactoryStorage {
       throw new Error('المزود والنموذج مطلوبان لحفظ اتصال الذكاء الاصطناعي.');
     }
 
-    if (params.active !== false && !assignedGate) {
-      this.db
-        .prepare(`UPDATE ai_connections SET active = 0 WHERE user_id = ? AND assigned_gate IS NULL`)
-        .run(params.userId);
+    if (params.active !== false) {
+      if (assignedGate !== null) {
+        this.db
+          .prepare(`UPDATE ai_connections SET active = 0 WHERE user_id = ? AND assigned_gate = ?`)
+          .run(params.userId, assignedGate);
+      } else {
+        this.db
+          .prepare(`UPDATE ai_connections SET active = 0 WHERE user_id = ? AND assigned_gate IS NULL`)
+          .run(params.userId);
+      }
     }
 
     const existing = this.db
@@ -751,7 +757,14 @@ export class FactoryStorage {
         .get(connectionId, userId) as Record<string, unknown> | undefined;
     }
 
-    // 3. Fallback to user's active default BYOK connection
+    // 3. Fallback to user's active general BYOK connection (assigned_gate IS NULL)
+    if (!row) {
+      row = this.db
+        .prepare(`SELECT * FROM ai_connections WHERE user_id = ? AND active = 1 AND assigned_gate IS NULL ORDER BY updated_at DESC LIMIT 1`)
+        .get(userId) as Record<string, unknown> | undefined;
+    }
+
+    // 4. Fallback to any active connection for this user
     if (!row) {
       row = this.db
         .prepare(`SELECT * FROM ai_connections WHERE user_id = ? AND active = 1 ORDER BY updated_at DESC LIMIT 1`)

@@ -802,7 +802,7 @@ export default function App() {
   const [gateApprovals, setGateApprovals] = useState<Record<number, boolean>>({});
 
   const [savedByokConnections, setSavedByokConnections] = useState<
-    { id: string; provider: string; model: string; active: boolean; hasKey: boolean; maskedKey: string }[]
+    { id: string; provider: string; model: string; active: boolean; hasKey: boolean; maskedKey: string; assignedGate?: number | null }[]
   >([]);
 
   // Google Stitch Live Canvas State (Gate 2 Interactive Design Studio — dynamically driven by Gate 1 PRD)
@@ -839,6 +839,7 @@ export default function App() {
   const [byokProvider, setByokProvider] = useState<string>('gemini');
   const [byokApiKey, setByokApiKey] = useState(() => localStorage.getItem('ogroup_byok_key') || '');
   const [byokModel, setByokModel] = useState('gemini-3.8-flash');
+  const [byokAssignedGates, setByokAssignedGates] = useState<Record<string, number>>({});
 
   // Factory Providers & Five Agents State (Authoritative Backend State + Separate UI Draft State)
   const [savedFactoryProviders, setSavedFactoryProviders] = useState<FactoryProvider[]>(DEFAULT_PROVIDERS);
@@ -1514,7 +1515,7 @@ export default function App() {
     showToast('تم تسجيل الخروج بنجاح');
   };
 
-  const handleSaveByokConnection = async (providerId: string, modelName?: string, apiKeyValue?: string) => {
+  const handleSaveByokConnection = async (providerId: string, modelName?: string, apiKeyValue?: string, assignedGate?: number | null) => {
     if (!sessionToken) {
       showToast('يرجى تسجيل الدخول أولاً لحفظ إعدادات BYOK.');
       return;
@@ -1542,6 +1543,7 @@ export default function App() {
           model: resolvedModel,
           apiKey: keyToSave,
           active: true,
+          assignedGate: typeof assignedGate === 'number' && assignedGate >= 1 && assignedGate <= 5 ? assignedGate : null,
         }),
       });
       const data = await res.json();
@@ -2043,7 +2045,7 @@ export default function App() {
       if (currentG < 5) {
         // Each approval advances the workspace to the next gate page.
         setCurrentView('gate-workspace');
-        setActiveScreen(`gate-${currentG + 1}`);
+        setActiveScreen((`gate-${currentG + 1}`) as StitchScreen);
         showToast(`تم اعتماد البوابة ${currentG}. انتقلت الآن إلى صفحة البوابة ${currentG + 1}.`);
       } else {
         showToast('تم اعتماد البوابة الخامسة وتسليم المشروع نهائياً بنجاح!');
@@ -5105,17 +5107,33 @@ export default function App() {
                               dir="ltr"
                               className="w-full h-10 px-3 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono"
                             />
+
+                            <label className="block font-bold text-slate-700">تخصيص المفتاح لمرحلة / بوابة معينة</label>
+                            <select
+                              value={byokAssignedGates[prov.id] !== undefined ? byokAssignedGates[prov.id] : (savedConn?.assignedGate || 0)}
+                              onChange={e => setByokAssignedGates(prev => ({ ...prev, [prov.id]: Number(e.target.value) }))}
+                              className="w-full h-9 px-3 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-800"
+                            >
+                              <option value={0}>مفتاح عام (لكافة المراحل غير المخصصة)</option>
+                              <option value={1}>المرحلة 1: وكيل المتطلبات (Gate 1)</option>
+                              <option value={2}>المرحلة 2: وكيل التصميم والواجهات (Gate 2 - Stitch)</option>
+                              <option value={3}>المرحلة 3: وكيل البرمجة وتوليد الكود (Gate 3)</option>
+                              <option value={4}>المرحلة 4: وكيل فحص الجودة والأمان (Gate 4)</option>
+                              <option value={5}>المرحلة 5: وكيل التسليم النهائي والنشر (Gate 5)</option>
+                            </select>
                           </div>
 
                           <div className="flex items-center justify-end pt-2">
                             <button
-                              onClick={() =>
+                              onClick={() => {
+                                const gateChoice = byokAssignedGates[prov.id] !== undefined ? byokAssignedGates[prov.id] : (savedConn?.assignedGate || 0);
                                 handleSaveByokConnection(
                                   prov.id,
                                   byokProvider === prov.id ? byokModel : savedConn?.model || prov.defaultModel,
-                                  byokProvider === prov.id ? byokApiKey : ''
-                                )
-                              }
+                                  byokProvider === prov.id ? byokApiKey : '',
+                                  gateChoice > 0 ? gateChoice : null
+                                );
+                              }}
                               className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-xl text-xs transition"
                             >
                               حفظ وتفعيل المزود

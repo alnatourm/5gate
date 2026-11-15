@@ -66,7 +66,7 @@ export function isGroqModelIdentifier(modelLower: string): boolean {
 }
 
 export function inferProviderType(prov: Partial<ProviderConfig> & { provider?: string }): ProviderType {
-  const idAndName = `${prov.id || ''} ${prov.name || ''}`.toLowerCase();
+  const idAndName = `${prov.id || ''} ${prov.name || ''} ${prov.provider || ''} ${prov.providerType || ''}`.toLowerCase();
   const modelLower = (prov.model || '').toLowerCase().trim();
   const keyTrimmed = (prov.apiKey || '').trim();
 
@@ -82,8 +82,8 @@ export function inferProviderType(prov: Partial<ProviderConfig> & { provider?: s
   if (idAndName.includes('together')) return 'together';
   if (idAndName.includes('cohere')) return 'cohere';
   if (idAndName.includes('v0')) return 'v0';
+  if (idAndName.includes('gemini') || keyTrimmed.startsWith('AIzaSy')) return 'gemini';
   if (idAndName.includes('openai')) return 'openai';
-  if (idAndName.includes('gemini')) return 'gemini';
 
   const explicit = (prov.providerType || prov.provider || '').toLowerCase().trim();
   if (
@@ -121,7 +121,7 @@ export function inferProviderType(prov: Partial<ProviderConfig> & { provider?: s
   if (modelLower.startsWith('grok-')) return 'xai';
   if (modelLower.startsWith('openrouter/')) return 'openrouter';
 
-  const hay = `${prov.id || ''} ${prov.name || ''} ${prov.endpoint || ''}`.toLowerCase();
+  const hay = `${prov.id || ''} ${prov.name || ''} ${prov.provider || ''} ${prov.endpoint || ''}`.toLowerCase();
   if (hay.includes('stitch')) return 'stitch';
   if (hay.includes('groq')) return 'groq';
   if (hay.includes('openrouter')) return 'openrouter';
@@ -764,15 +764,22 @@ export function resolveAdminTargetCredentials(params: {
   if (explicitCustom) {
     apiKey = explicitCustom;
     keySource = 'Custom Key';
-  } else if (!mergedAgent.useProviderKey && resolvedAgentKey) {
+  } else if (resolvedAgentKey && (!mergedAgent.useProviderKey || !providerKey)) {
     apiKey = resolvedAgentKey;
     keySource = `Agent Gate ${gateNum} Key`;
-  } else if (providerKey) {
+  } else if (resolvedAgentKey && mergedAgent.apiKey && mergedAgent.apiKey.trim()) {
+    // Stage-specific dedicated key on the agent takes priority
+    apiKey = resolvedAgentKey;
+    keySource = `Agent Gate ${gateNum} Key`;
+  } else if (providerKey && mergedAgent.useProviderKey) {
     apiKey = providerKey;
     keySource = 'Provider Key';
   } else if (resolvedAgentKey) {
     apiKey = resolvedAgentKey;
     keySource = `Agent Gate ${gateNum} Key`;
+  } else if (providerKey) {
+    apiKey = providerKey;
+    keySource = 'Provider Key';
   } else if (envKey) {
     apiKey = envKey;
     keySource = 'System Vault';
@@ -800,6 +807,14 @@ export function resolveAdminTargetCredentials(params: {
  * - BYOK never falls back to OGroup-managed credentials
  * - Managed mode uses the Admin-configured agent & provider for that gate
  */
+export interface ProjectGateRequestOverride {
+  apiKey?: string;
+  provider?: string;
+  model?: string;
+  connectionId?: string;
+  endpoint?: string;
+}
+
 export function resolveProjectGateCredentials(params: {
   storage: FactoryStorage;
   projectId: string;
@@ -808,8 +823,9 @@ export function resolveProjectGateCredentials(params: {
   providers: ProviderConfig[];
   agents: AgentConfig[];
   managedGeminiApiKey?: string;
+  requestOverride?: ProjectGateRequestOverride;
 }): ResolvedExecutionTarget {
-  const { storage, projectId, userId, gate, providers, agents, managedGeminiApiKey } = params;
+  const { storage, projectId, userId, gate, providers, agents, managedGeminiApiKey, requestOverride } = params;
   const project = storage.getProjectById(projectId);
   if (!project) {
     const err: any = new Error('المشروع غير موجود.');
@@ -839,31 +855,82 @@ export function resolveProjectGateCredentials(params: {
       throw err;
     }
 
-    const conn = storage.getDecryptedAIConnectionForUser(userId, project.selectedConnectionId, gate);
+    const directKey = cleanApiKeyCandidate(requestOverride?.apiKey);
+    if (directKey) {
+      const directProvider = (
+        requestOverride?.provider ||
+        (agent?.providerId ? agent.providerId.replace(/^prov-/, '') : '') ||
+        agent?.providerName ||
+        'gemini'
+      ).trim();
+      const pType = inferProviderType({
+        id: agent?.providerId,
+        name: agent?.providerName,
+        provider: directProvider,
+        model: requestOverride?.model || agent?.model,
+        apiKey: directKey,
+        endpoint: requestOverride?.endpoint,
+      });
+      const rawModel =
+        requestOverride?.model ||
+        agent?.model ||
+        (pType === 'gemini'
+          ? 'gemini-3.8-flash'
+          : pType === 'stitch'
+          ? 'GEMINI_3_FLASH'
+          : 'gpt-4o-2024-11-20');
+      const configuredModel = normalizeConfiguredModelForProvider(rawModel, pType);
+      return {
+        providerId: `byok-request-gate-${gate}`,
+        providerType: pType,
+        providerName: requestOverride?.provider || agent?.providerName || directProvider,
+        configuredModel,
+        apiKey: directKey,
+        keySource: `Request Gate ${gate} Key`,
+        endpoint: normalizeEndpointForProviderType(pType, requestOverride?.endpoint),
+        systemPrompt: agent?.systemPrompt,
+        temperature: agent?.temperature,
+        maxTokens: agent?.maxTokens,
+        agentGate: gate,
+      };
+    }
+
+    const conn = storage.getDecryptedAIConnectionForUser(
+      userId,
+      requestOverride?.connectionId || project.selectedConnectionId,
+      gate
+    );
     if (!conn || !conn.active) {
       const err: any = new Error(
-        'لا يوجد اتصال ذكاء اصطناعي (BYOK) مفعل لحسابك. يرجى إعداد وتفعيل المفتاح أولاً.'
+        `لا يوجد اتصال ذكاء اصطناعي (BYOK) مفعل للبوابة ${gate}. يرجى إعداد وتفعيل المفتاح أولاً.`
       );
       err.statusCode = 400;
       throw err;
     }
     if (!conn.apiKey || !conn.apiKey.trim()) {
       const err: any = new Error(
-        `مفتاح API الخاص بك للمزود (${conn.provider}) غير موجود أو فارغ. لن يتم استخدام مفتاح المنصة البديل.`
+        `مفتاح API الخاص بك للبوابة ${gate} للمزود (${conn.provider}) غير موجود أو فارغ. لن يتم استخدام مفتاح المنصة البديل.`
       );
       err.statusCode = 401;
       throw err;
     }
 
-    const pType = inferProviderType({ provider: conn.provider, model: conn.model, endpoint: conn.endpoint });
+    const pType = inferProviderType({
+      provider: requestOverride?.provider || conn.provider,
+      model: requestOverride?.model || conn.model,
+      endpoint: requestOverride?.endpoint || conn.endpoint,
+    });
     return {
       providerId: conn.id,
       providerType: pType,
       providerName: conn.provider,
-      configuredModel: normalizeConfiguredModelForProvider(conn.model, pType),
+      configuredModel: normalizeConfiguredModelForProvider(
+        requestOverride?.model || conn.model,
+        pType
+      ),
       apiKey: conn.apiKey.trim(),
-      keySource: 'Customer BYOK Vault',
-      endpoint: normalizeEndpointForProviderType(pType, conn.endpoint),
+      keySource: `Customer BYOK Gate ${gate} Vault`,
+      endpoint: normalizeEndpointForProviderType(pType, requestOverride?.endpoint || conn.endpoint),
       systemPrompt: agent?.systemPrompt,
       temperature: agent?.temperature,
       maxTokens: agent?.maxTokens,
@@ -883,6 +950,13 @@ export function resolveProjectGateCredentials(params: {
     providers,
     agents,
     managedGeminiApiKey,
+    customKey: cleanApiKeyCandidate(requestOverride?.apiKey),
+    agentOverride: requestOverride?.model || requestOverride?.provider
+      ? {
+          model: requestOverride?.model,
+          providerId: requestOverride?.provider ? `prov-${requestOverride.provider}` : undefined,
+        }
+      : undefined,
   });
 
   if (!resolved.apiKey) {
