@@ -941,6 +941,34 @@ export class FactoryStorage {
     return row ? this.mapProjectRow(row) : null;
   }
 
+  public deleteProject(projectId: string): boolean {
+    const project = this.getProjectById(projectId);
+    if (!project) return false;
+
+    this.db.exec('BEGIN TRANSACTION');
+    try {
+      this.db.prepare(`DELETE FROM gate1_document_versions WHERE project_id = ?`).run(projectId);
+      this.db.prepare(`DELETE FROM gate1_chat_messages WHERE project_id = ?`).run(projectId);
+      this.db.prepare(`DELETE FROM gate1_approvals WHERE project_id = ?`).run(projectId);
+      this.db.prepare(`DELETE FROM gate1_documents WHERE project_id = ?`).run(projectId);
+
+      this.db.prepare(`DELETE FROM gate_runs WHERE project_id = ?`).run(projectId);
+      this.db.prepare(`DELETE FROM gate_artifact_versions WHERE project_id = ?`).run(projectId);
+      this.db.prepare(`DELETE FROM gate_artifacts WHERE project_id = ?`).run(projectId);
+      this.db.prepare(`DELETE FROM gate_approvals WHERE project_id = ?`).run(projectId);
+      this.db.prepare(`DELETE FROM project_files WHERE project_id = ?`).run(projectId);
+      this.db.prepare(`DELETE FROM qa_reports WHERE project_id = ?`).run(projectId);
+      this.db.prepare(`DELETE FROM delivery_packages WHERE project_id = ?`).run(projectId);
+
+      this.db.prepare(`DELETE FROM projects WHERE id = ?`).run(projectId);
+      this.db.exec('COMMIT');
+      return true;
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+
   // =========================================================================
   // EXECUTION RUN TRACKING (ALL GATES)
   // =========================================================================

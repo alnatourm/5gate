@@ -897,6 +897,32 @@ export function createApp(options: CreateAppOptions = {}) {
     });
   });
 
+  // DELETE /api/projects/:id - Delete project and all its 5-gate states
+  app.delete('/api/projects/:id', requireAuth, (req: Request & { user?: UserRecord }, res) => {
+    try {
+      const project = storage.getProjectById(req.params.id);
+      if (!project) {
+        return res.status(404).json({ error: 'المشروع غير موجود.' });
+      }
+      if (project.ownerId !== req.user!.id) {
+        return res.status(403).json({ error: 'غير مصرح لك بحذف هذا المشروع.' });
+      }
+
+      const success = storage.deleteProject(project.id);
+      if (!success) {
+        return res.status(500).json({ error: 'فشل في حذف المشروع.' });
+      }
+
+      return res.json({
+        success: true,
+        message: 'تم حذف المشروع وجميع حالات البوابات الخاصة به بنجاح.',
+        deletedProjectId: project.id,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message || 'حدث خطأ أثناء حذف المشروع.' });
+    }
+  });
+
   // =========================================================================
   // GATE 1 SPECIFIC ENDPOINTS (PRESERVED FOR BACKWARD COMPATIBILITY)
   // =========================================================================

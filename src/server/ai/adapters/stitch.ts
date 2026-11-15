@@ -658,12 +658,35 @@ export class StitchAdapter implements ProviderAdapter {
   private async downloadScreenHtml(
     htmlUrlOrContent: string,
     rawScreenData: Record<string, any> | undefined,
-    fetchFn: ProviderHttpClient
+    fetchFn: ProviderHttpClient,
+    apiKey?: string
   ): Promise<{ htmlContent: string; htmlDownloadUrl: string }> {
     const trimmed = (htmlUrlOrContent || '').trim();
     if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-      const response = await fetchFn(trimmed);
+      // Include X-Goog-Api-Key header if fetching from stitch.googleapis.com
+      const headers: Record<string, string> = {};
+      if (apiKey && trimmed.includes('stitch.googleapis.com')) {
+        headers['X-Goog-Api-Key'] = apiKey;
+      }
+      let response = await fetchFn(trimmed, { headers });
+      if (!response.ok && Object.keys(headers).length > 0) {
+        // Fallback without headers if signed URL doesn't expect headers
+        const fallbackRes = await fetchFn(trimmed);
+        if (fallbackRes.ok) {
+          response = fallbackRes;
+        }
+      }
+
       if (!response.ok) {
+        // If download endpoint fails, check if HTML content is available directly in rawScreenData
+        const fallbackInline =
+          (typeof rawScreenData?.htmlCode?.content === 'string' && rawScreenData.htmlCode.content.trim()) ||
+          (typeof rawScreenData?.html === 'string' && rawScreenData.html.trim()) ||
+          '';
+        if (fallbackInline) {
+          return { htmlContent: fallbackInline, htmlDownloadUrl: trimmed };
+        }
+
         throw new StitchError({
           code: 'NETWORK_ERROR',
           message: `Failed to download generated Stitch screen HTML from ${trimmed} (HTTP ${response.status})`,
@@ -947,7 +970,8 @@ export class StitchAdapter implements ProviderAdapter {
         const { htmlContent, htmlDownloadUrl } = await this.downloadScreenHtml(
           rawHtmlUrl,
           newRemoteScreen.data,
-          fetchFn
+          fetchFn,
+          apiKey
         );
 
         generatedScreenInventory.push(...existingScreens);
@@ -1002,7 +1026,8 @@ export class StitchAdapter implements ProviderAdapter {
         const { htmlContent, htmlDownloadUrl } = await this.downloadScreenHtml(
           rawHtmlUrl,
           editedRemoteScreen.data,
-          fetchFn
+          fetchFn,
+          apiKey
         );
 
         for (let i = 0; i < existingScreens.length; i++) {
@@ -1055,7 +1080,8 @@ export class StitchAdapter implements ProviderAdapter {
           const { htmlContent, htmlDownloadUrl } = await this.downloadScreenHtml(
             rawHtmlUrl,
             generatedScreen.data,
-            fetchFn
+            fetchFn,
+            apiKey
           );
 
           const finalTitle =

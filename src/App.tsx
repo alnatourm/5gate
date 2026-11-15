@@ -61,7 +61,8 @@ import {
   Ban,
   UserPlus,
   Filter,
-  AlertTriangle
+  AlertTriangle,
+  Trash2
 } from 'lucide-react';
 import {
   RequirementsDocument,
@@ -2136,6 +2137,65 @@ export default function App() {
     }
   };
 
+  // Delete Project State & Handler
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+  const [isDeletingProject, setIsDeletingProject] = useState<boolean>(false);
+
+  const confirmDeleteProject = async () => {
+    if (!projectToDelete) return;
+    setIsDeletingProject(true);
+    try {
+      const res = await fetch(`/api/projects/${projectToDelete.id}`, {
+        method: 'DELETE',
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error || 'فشل حذف المشروع.');
+        return;
+      }
+
+      showToast('تم حذف المشروع وجميع حالات البوابات الخاصة به بنجاح.');
+      const remainingProjects = projects.filter((p) => p.id !== projectToDelete.id);
+      setProjects(remainingProjects);
+
+      if (activeProjectId === projectToDelete.id) {
+        if (remainingProjects.length > 0) {
+          const nextProj = remainingProjects[0];
+          setActiveProjectId(nextProj.id);
+          localStorage.setItem('ogroup_active_project_id', nextProj.id);
+          await fetchProjectGate1Data(nextProj.id, sessionToken);
+        } else {
+          setActiveProjectId('');
+          localStorage.removeItem('ogroup_active_project_id');
+          setGate1Document(null);
+          setGate1Markdown('');
+          setGate1ApprovedArtifact(null);
+          setGate2Design(null);
+          setGate2Version(0);
+          setGate2Locked(false);
+          setGate3Code(null);
+          setGate3Version(0);
+          setGate3Locked(false);
+          setGate4Report(null);
+          setGate4Version(0);
+          setGate4Locked(false);
+          setGate5Delivery(null);
+          setGate5Version(0);
+          setGate5Locked(false);
+          setGateApprovals({});
+        }
+        setCurrentView('dashboard');
+      }
+
+      setProjectToDelete(null);
+    } catch (err: any) {
+      showToast(err.message || 'حدث خطأ أثناء حذف المشروع.');
+    } finally {
+      setIsDeletingProject(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-800 font-sans antialiased flex flex-col select-none" dir="rtl">
       
@@ -2144,6 +2204,54 @@ export default function App() {
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 text-xs font-bold animate-bounce">
           <CheckCircle className="w-4 h-4 text-emerald-400" />
           <span>{toastMsg}</span>
+        </div>
+      )}
+
+      {/* Delete Project Confirmation Modal */}
+      {projectToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-100 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">تأكيد حذف المشروع</h3>
+                <p className="text-xs text-slate-500 mt-0.5">هذا الإجراء نهائي ولا يمكن التراجع عنه</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
+              هل أنت متأكد من رغبتك في حذف مشروع <strong className="text-slate-900 font-bold">"{projectToDelete.name}"</strong>؟ سيتم مسح كافة ملفات الكود وشاشات التصميم ووثائق المتطلبات الخاصة بهذا المشروع.
+            </p>
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                disabled={isDeletingProject}
+                onClick={() => setProjectToDelete(null)}
+                className="px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingProject}
+                onClick={confirmDeleteProject}
+                className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-md shadow-red-500/20 flex items-center gap-2 transition cursor-pointer disabled:opacity-50"
+              >
+                {isDeletingProject ? (
+                  <>
+                    <RefreshCcw className="w-3.5 h-3.5 animate-spin" />
+                    <span>جاري الحذف...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>تأكيد الحذف</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -4947,13 +5055,27 @@ export default function App() {
 
                           <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
                             <span className="text-[10px] text-slate-400">تاريخ الإنشاء: {proj.createdAt}</span>
-                            <button 
-                              onClick={() => { setActiveProjectId(proj.id); setCurrentView('gate-workspace'); }} 
-                              className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition"
-                            >
-                              <span>فتح مساحة العمل</span>
-                              <ArrowRight className="w-3.5 h-3.5 rotate-180" />
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setProjectToDelete(proj);
+                                }}
+                                className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition cursor-pointer border border-red-100"
+                                title="حذف المشروع"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>حذف</span>
+                              </button>
+                              <button 
+                                onClick={() => { setActiveProjectId(proj.id); setCurrentView('gate-workspace'); }} 
+                                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition cursor-pointer"
+                              >
+                                <span>فتح مساحة العمل</span>
+                                <ArrowRight className="w-3.5 h-3.5 rotate-180" />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -5240,7 +5362,17 @@ export default function App() {
                       </button>
                       <span className="text-slate-300">|</span>
                       <div>
-                        <h2 className="text-sm font-bold text-slate-800">{activeProject.name}</h2>
+                        <div className="flex items-center gap-2">
+                          <h2 className="text-sm font-bold text-slate-800">{activeProject.name}</h2>
+                          <button
+                            type="button"
+                            onClick={() => setProjectToDelete(activeProject)}
+                            title="حذف المشروع"
+                            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                         <span className="text-[11px] text-orange-600 font-semibold">
                           البوابة الحالية: {activeProject.currentGate} من 5 • الإصدار المحفوظ: v
                           {activeProject.currentGate === 1
